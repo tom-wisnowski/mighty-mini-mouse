@@ -1,0 +1,17 @@
+# Build artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Config files with secrets (if any)
+# config.json
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+
+# Logs
+*.log

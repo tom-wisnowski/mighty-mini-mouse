@@ -1,0 +1,14 @@
+{
+  "targetDevice": {
+    "enabled": false,
+    "devicePath": null,
+    "friendlyName": null
+  },
+  "gestures": [],
+  "logging": {
+    "enabled": true,
+    "logFile": "interceptor.log",
+    "logLevel": "Info"
+  },
+  "startWithWindows": false
+}
