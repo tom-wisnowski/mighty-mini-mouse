@@ -1,0 +1,86 @@
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using static MightyMiniMouse.Hooks.NativeMethods;
+
+namespace MightyMiniMouse.Hooks;
+
+public sealed class KeyboardHook : IDisposable
+{
+    private IntPtr _hookId = IntPtr.Zero;
+    private readonly LowLevelHookProc _proc;
+
+    /// <summary>
+    /// Fires for every keyboard event. Return true from handler to suppress the input.
+    /// </summary>
+    public event Func<KeyboardHookEventArgs, bool>? OnKeyEvent;
+
+    public KeyboardHook()
+    {
+        _proc = HookCallback;
+    }
+
+    public void Install()
+    {
+        using var process = Process.GetCurrentProcess();
+        using var module = process.MainModule!;
+        _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _proc,
+            GetModuleHandle(module.ModuleName), 0);
+
+        if (_hookId == IntPtr.Zero)
+            throw new InvalidOperationException(
+                $"Failed to install keyboard hook. Error: {Marshal.GetLastWin32Error()}");
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        try
+        {
+            if (nCode >= 0)
+            {
+                var hookStruct = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+
+                // Skip injected events
+                if ((hookStruct.flags & LLKHF_INJECTED) != 0)
+                    return CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+                var args = new KeyboardHookEventArgs
+                {
+                    VirtualKeyCode = hookStruct.vkCode,
+                    ScanCode = hookStruct.scanCode,
+                    IsKeyDown = (int)wParam is WM_KEYDOWN or WM_SYSKEYDOWN,
+                    IsKeyUp = (int)wParam is WM_KEYUP or WM_SYSKEYUP,
+                    Timestamp = hookStruct.time
+                };
+
+                bool suppress = OnKeyEvent?.Invoke(args) ?? false;
+                if (suppress)
+                    return (IntPtr)1;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logging.Logger.Instance.Error("Exception in keyboard hook callback", ex);
+        }
+
+        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    public void Dispose()
+    {
+        if (_hookId != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_hookId);
+            _hookId = IntPtr.Zero;
+        }
+    }
+}
+
+public class KeyboardHookEventArgs
+{
+    public uint VirtualKeyCode { get; init; }
+    public uint ScanCode { get; init; }
+    public bool IsKeyDown { get; init; }
+    public bool IsKeyUp { get; init; }
+    public uint Timestamp { get; init; }
+}

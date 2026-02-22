@@ -1,4 +1,4 @@
-# BT Input Interceptor
+# Mighty Mini Mouse
 
 A Windows system tray application that intercepts input from Bluetooth handheld mouse/pointer devices, detects configurable gesture patterns, and dispatches custom actions.
 
@@ -20,13 +20,13 @@ A Windows system tray application that intercepts input from Bluetooth handheld 
 ## Build
 
 ```bash
-dotnet build BtInputInterceptor/src/BtInputInterceptor.csproj
+dotnet build MightyMiniMouse/src/MightyMiniMouse.csproj
 ```
 
 ### Publish (self-contained)
 
 ```bash
-dotnet publish BtInputInterceptor/src/BtInputInterceptor.csproj -c Release -r win-x64 --self-contained
+dotnet publish MightyMiniMouse/src/MightyMiniMouse.csproj -c Release -r win-x64 --self-contained
 ```
 
 ## Configuration
@@ -56,7 +56,7 @@ Edit `config.json` in the application directory. See [bt-input-interceptor-spec.
 ## Project Structure
 
 ```
-BtInputInterceptor/
+MightyMiniMouse/
 ├── src/
 │   ├── Program.cs              # Entry point + message loop
 │   ├── TrayApplication.cs      # Tray icon, lifecycle, wiring
