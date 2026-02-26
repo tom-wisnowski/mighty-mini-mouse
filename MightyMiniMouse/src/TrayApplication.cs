@@ -132,6 +132,15 @@ public class TrayApplication : IDisposable
         _contextMenu.Items.Add(new ToolStripMenuItem("Configure JSON...", null, (_, _) => OpenConfig()));
         _contextMenu.Items.Add(new ToolStripMenuItem("View Log...", null, (_, _) => OpenLog()));
         _contextMenu.Items.Add(new ToolStripSeparator());
+
+        var startupItem = new ToolStripMenuItem("Start with Windows")
+        {
+            Checked = _config.StartWithWindows,
+            CheckOnClick = true
+        };
+        startupItem.CheckedChanged += (_, _) => ToggleStartWithWindows(startupItem);
+        _contextMenu.Items.Add(startupItem);
+
         _contextMenu.Items.Add(enableItem);
         _contextMenu.Items.Add(new ToolStripSeparator());
         _contextMenu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
@@ -575,6 +584,33 @@ public class TrayApplication : IDisposable
         {
             Logger.Instance.Error("Failed to register startup", ex);
         }
+    }
+
+    private static void UnregisterStartup()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Run", true);
+            key?.DeleteValue("MightyMiniMouse", throwOnMissingValue: false);
+            Logger.Instance.Info("Unregistered from Windows startup.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Instance.Error("Failed to unregister startup", ex);
+        }
+    }
+
+    private void ToggleStartWithWindows(ToolStripMenuItem item)
+    {
+        _config.StartWithWindows = item.Checked;
+        if (item.Checked)
+            RegisterStartup();
+        else
+            UnregisterStartup();
+
+        ConfigManager.Save(_config);
+        Debug.WriteLine($"[MMM] Start with Windows: {item.Checked}");
     }
 
     private void ExitApplication()
