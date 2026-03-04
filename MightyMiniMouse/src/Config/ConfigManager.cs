@@ -13,7 +13,7 @@ public class ConfigManager
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "MightyMiniMouse");
 
-    private static readonly string ConfigPath = Path.Combine(AppDataDir, "config.json");
+    public static readonly string ConfigPath = Path.Combine(AppDataDir, "config.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

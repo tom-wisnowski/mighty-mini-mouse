@@ -24,7 +24,7 @@ public class LaunchProcessAction : IAction
                 UseShellExecute = true
             };
             Process.Start(psi);
-            Logger.Instance.Info($"Launched process: {_path} {_arguments}");
+            Logger.Instance.Debug($"Launched process: {_path} {_arguments}");
         }
         catch (Exception ex)
         {

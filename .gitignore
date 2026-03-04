@@ -1,6 +1,7 @@
 # Build artifacts
 [Bb]in/
 [Oo]bj/
+publish/
 *.user
 *.suo
 *.userosscache

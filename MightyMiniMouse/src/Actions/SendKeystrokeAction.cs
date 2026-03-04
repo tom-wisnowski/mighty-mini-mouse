@@ -162,12 +162,12 @@ public class SendKeystrokeAction : IAction
             }
             else if (sent < inputArray.Length)
             {
-                Logger.Instance.Warning($"SendInput partial: sent {sent}/{inputArray.Length} for '{_keystroke}'");
+                Logger.Instance.Debug($"SendInput partial: sent {sent}/{inputArray.Length} for '{_keystroke}'");
                 Debug.WriteLine($"[MMM][SENDKEY] PARTIAL: sent {sent}/{inputArray.Length}");
             }
             else
             {
-                Logger.Instance.Info($"Sent keystroke: {_keystroke} ({sent} events)");
+                Logger.Instance.Debug($"Sent keystroke: {_keystroke} ({sent} events)");
                 Debug.WriteLine($"[MMM][SENDKEY] SUCCESS: '{_keystroke}' — {sent} events injected");
             }
         }

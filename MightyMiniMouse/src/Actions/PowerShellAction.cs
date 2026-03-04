@@ -49,13 +49,13 @@ public class PowerShellAction : IAction
 
             if (process.ExitCode == 0)
             {
-                Logger.Instance.Info($"PowerShell script completed: {_scriptPath} (exit: 0)");
+                Logger.Instance.Debug($"PowerShell script completed: {_scriptPath} (exit: 0)");
                 if (!string.IsNullOrWhiteSpace(output))
                     Logger.Instance.Debug($"PowerShell output: {output.Trim()}");
             }
             else
             {
-                Logger.Instance.Warning($"PowerShell script exited with code {process.ExitCode}: {_scriptPath}");
+                Logger.Instance.Debug($"PowerShell script exited with code {process.ExitCode}: {_scriptPath}");
                 if (!string.IsNullOrWhiteSpace(error))
                     Logger.Instance.Error($"PowerShell error: {error.Trim()}");
             }

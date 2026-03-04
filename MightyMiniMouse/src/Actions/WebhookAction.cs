@@ -34,7 +34,7 @@ public class WebhookAction : IAction
             }
 
             var response = await HttpClient.SendAsync(request, ct);
-            Logger.Instance.Info($"Webhook {_httpMethod} {_url} → {(int)response.StatusCode} {response.ReasonPhrase}");
+            Logger.Instance.Debug($"Webhook {_httpMethod} {_url} → {(int)response.StatusCode} {response.ReasonPhrase}");
         }
         catch (Exception ex)
         {

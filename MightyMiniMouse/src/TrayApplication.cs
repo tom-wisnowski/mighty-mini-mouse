@@ -95,14 +95,14 @@ public class TrayApplication : IDisposable
         Logger.Instance.Info($"  Config dir: {ConfigManager.AppDataDir}");
         Logger.Instance.Info($"  Logging: level={logLevel}, file={_config.Logging.LogFile}");
         if (_config.TargetDevice.Enabled)
-            Logger.Instance.Info($"  Target device: {_config.TargetDevice.DevicePath ?? "(not set)"}");
+            Logger.Instance.Debug($"  Target device: {_config.TargetDevice.DevicePath ?? "(not set)"}");
         else
-            Logger.Instance.Info("  Target device: filtering disabled (accepting all)");
+            Logger.Instance.Debug("  Target device: filtering disabled (accepting all)");
         Logger.Instance.Info("===================================================");
 
         // Set up system tray icon
         SetupTrayIcon();
-        Logger.Instance.Info("Tray icon initialized.");
+        Logger.Instance.Debug("Tray icon initialized.");
 
         // Initialize input pipeline
         InitializeHooks();
@@ -111,7 +111,7 @@ public class TrayApplication : IDisposable
         if (_config.StartWithWindows)
             RegisterStartup();
 
-        Logger.Instance.Info("Initialization complete. Interceptor is active.");
+        Logger.Instance.Debug("Initialization complete. Interceptor is active.");
         Debug.WriteLine("[MMM] Initialization complete. Interceptor is active.");
     }
 
@@ -171,14 +171,14 @@ public class TrayApplication : IDisposable
         {
             if (!_rawInputManager.SetTargetDeviceByPath(_config.TargetDevice.DevicePath))
             {
-                Logger.Instance.Warning($"Target device not found: {_config.TargetDevice.DevicePath}. Accepting all devices.");
+                Logger.Instance.Debug($"Target device not found: {_config.TargetDevice.DevicePath}. Accepting all devices.");
             }
         }
 
         // Initialize gesture engine
         _gestureEngine = new GestureEngine(_config.Gestures);
         _gestureEngine.OnGestureRecognized += OnGestureRecognized;
-        Logger.Instance.Info($"Gesture engine initialized with {_config.Gestures.Count} definition(s).");
+        Logger.Instance.Debug($"Gesture engine initialized with {_config.Gestures.Count} definition(s).");
 
         // Install mouse hook
         try
@@ -186,7 +186,7 @@ public class TrayApplication : IDisposable
             _mouseHook = new MouseHook();
             _mouseHook.OnMouseEvent += OnMouseEvent;
             _mouseHook.Install();
-            Logger.Instance.Info("Mouse hook installed successfully.");
+            Logger.Instance.Debug("Mouse hook installed successfully.");
         }
         catch (Exception ex)
         {
@@ -199,7 +199,7 @@ public class TrayApplication : IDisposable
             _keyboardHook = new KeyboardHook();
             _keyboardHook.OnKeyEvent += OnKeyEvent;
             _keyboardHook.Install();
-            Logger.Instance.Info("Keyboard hook installed successfully.");
+            Logger.Instance.Debug("Keyboard hook installed successfully.");
         }
         catch (Exception ex)
         {
@@ -364,7 +364,7 @@ public class TrayApplication : IDisposable
 
     private void OnGestureRecognized(GestureDefinition gesture)
     {
-        Logger.Instance.Info($"Gesture recognized: {gesture.Name} [{gesture.Type}]");
+        Logger.Instance.Debug($"Gesture recognized: {gesture.Name} [{gesture.Type}]");
         Debug.WriteLine($"[MMM][GESTURE] ★ RECOGNIZED: {gesture.Name} [{gesture.Type}]");
         Debug.WriteLine($"[MMM][GESTURE]   Action type: {gesture.Action.Type}");
         Debug.WriteLine($"[MMM][GESTURE]   Keystroke: {gesture.Action.Keystroke}");
@@ -420,7 +420,7 @@ public class TrayApplication : IDisposable
     {
         _enabled = !_enabled;
         menuItem.Text = _enabled ? "✓ Enabled" : "  Disabled";
-        Logger.Instance.Info($"Interceptor {(_enabled ? "enabled" : "disabled")}.");
+        Logger.Instance.Debug($"Interceptor {(_enabled ? "enabled" : "disabled")}.");
         Debug.WriteLine($"[MMM] Interceptor {(_enabled ? "enabled" : "disabled")}.");
 
         _trayIcon!.Icon = _enabled ? CreateDefaultIcon() : CreateDisabledIcon();
@@ -454,8 +454,7 @@ public class TrayApplication : IDisposable
     {
         try
         {
-            var configPath = System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "config.json");
+            var configPath = Config.ConfigManager.ConfigPath;
 
             if (System.IO.File.Exists(configPath))
             {
@@ -467,7 +466,7 @@ public class TrayApplication : IDisposable
             }
             else
             {
-                MessageBox.Show("Config file not found.", "Error",
+                MessageBox.Show($"Config file not found:\n{configPath}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -544,8 +543,7 @@ public class TrayApplication : IDisposable
     {
         try
         {
-            var logPath = System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, _config.Logging.LogFile);
+            var logPath = Config.ConfigManager.ResolveLogPath(_config.Logging.LogFile);
 
             if (System.IO.File.Exists(logPath))
             {
@@ -557,7 +555,7 @@ public class TrayApplication : IDisposable
             }
             else
             {
-                MessageBox.Show("Log file not found.", "Error",
+                MessageBox.Show($"Log file not found:\n{logPath}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -577,7 +575,7 @@ public class TrayApplication : IDisposable
             if (key != null && exePath != null)
             {
                 key.SetValue("MightyMiniMouse", $"\"{exePath}\"");
-                Logger.Instance.Info("Registered for Windows startup.");
+                Logger.Instance.Debug("Registered for Windows startup.");
             }
         }
         catch (Exception ex)
@@ -593,7 +591,7 @@ public class TrayApplication : IDisposable
             using var key = Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Run", true);
             key?.DeleteValue("MightyMiniMouse", throwOnMissingValue: false);
-            Logger.Instance.Info("Unregistered from Windows startup.");
+            Logger.Instance.Debug("Unregistered from Windows startup.");
         }
         catch (Exception ex)
         {

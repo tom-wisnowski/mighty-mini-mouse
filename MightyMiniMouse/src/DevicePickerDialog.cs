@@ -25,6 +25,7 @@ public class DevicePickerDialog : Form
     private Button _refreshBtn = null!;
     private Button _selectBtn = null!;
     private Button _cancelBtn = null!;
+    private Button _deleteBtn = null!;
     private Label _statusLabel = null!;
     private TextBox _nicknameBox = null!;
     private Button _saveNicknameBtn = null!;
@@ -109,7 +110,7 @@ public class DevicePickerDialog : Form
         {
             View = View.Details,
             FullRowSelect = true,
-            MultiSelect = false,
+            MultiSelect = true,
             HeaderStyle = ColumnHeaderStyle.Nonclickable,
             BackColor = BgPanel,
             ForeColor = FgPrimary,
@@ -155,6 +156,21 @@ public class DevicePickerDialog : Form
             _statusLabel.ForeColor = FgSecondary;
             Debug.WriteLine("[MMM][PICKER] Device list refreshed manually");
         };
+
+        // ── Delete button ──
+        _deleteBtn = new Button
+        {
+            Text = "🗑  Delete",
+            Size = new Size(120, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(130, 40, 40),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f),
+            Cursor = Cursors.Hand,
+            Enabled = false,
+        };
+        _deleteBtn.FlatAppearance.BorderSize = 0;
+        _deleteBtn.Click += (_, _) => DeleteSelectedDevices();
 
         // ── Select / Cancel buttons ──
         _selectBtn = new Button
@@ -239,8 +255,10 @@ public class DevicePickerDialog : Form
         bottomPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
         bottomPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        // Row 0
+        // Row 0 — Refresh | (spacer) | Delete | Set Active
         bottomPanel.Controls.Add(_refreshBtn, 0, 0);
+        _deleteBtn.Anchor = AnchorStyles.Right;
+        bottomPanel.Controls.Add(_deleteBtn, 2, 0);
         _selectBtn.Anchor = AnchorStyles.Right;
         bottomPanel.Controls.Add(_selectBtn, 3, 0);
         
@@ -493,6 +511,11 @@ public class DevicePickerDialog : Form
         _nicknameBox.Enabled = hasSelection;
         _saveNicknameBtn.Enabled = hasSelection;
 
+        // Delete is enabled only when at least one real device row (not "All Mice") is selected
+        bool hasRealDeviceSelected = _deviceList.SelectedItems.Cast<ListViewItem>()
+            .Any(i => i.Tag is DeviceInfo);
+        _deleteBtn.Enabled = hasRealDeviceSelected;
+
         if (hasSelection)
         {
             var selected = _deviceList.SelectedItems[0];
@@ -507,6 +530,53 @@ public class DevicePickerDialog : Form
         else
         {
             _nicknameBox.Text = "";
+        }
+    }
+
+    private void DeleteSelectedDevices()
+    {
+        var toDelete = _deviceList.SelectedItems.Cast<ListViewItem>()
+            .Where(i => i.Tag is DeviceInfo)
+            .Select(i => (DeviceInfo)i.Tag!)
+            .ToList();
+
+        if (toDelete.Count == 0) return;
+
+        int deletedCount = 0;
+        foreach (var device in toDelete)
+        {
+            string vidPid = RawInputManager.ExtractVidPid(device.DevicePath) ?? device.DevicePath;
+            bool removed = _deviceManager.RemoveDevice(vidPid);
+
+            // If this was the active target, clear it so we fall back to "All Mice"
+            if (_currentDevicePath != null &&
+                device.DevicePath.Contains(_currentDevicePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentDevicePath = null;
+                AllDevicesSelected = true;
+                SelectedDevice = null;
+                _onDeviceSelected?.Invoke(null, null);
+                Debug.WriteLine($"[MMM][PICKER] Deleted active device — falling back to All Mice");
+            }
+
+            if (removed) deletedCount++;
+            Debug.WriteLine($"[MMM][PICKER] Deleted device: {vidPid} (removed from config: {removed})");
+        }
+
+        PopulateDevices();
+
+        if (deletedCount > 0)
+        {
+            _statusLabel.Text = deletedCount == 1
+                ? "Device removed from saved list."
+                : $"{deletedCount} devices removed from saved list.";
+            _statusLabel.ForeColor = AccentOrange;
+        }
+        else
+        {
+            // Device was connected but had no saved entry — still show feedback
+            _statusLabel.Text = "Selected device(s) had no saved entry to remove.";
+            _statusLabel.ForeColor = FgSecondary;
         }
     }
 

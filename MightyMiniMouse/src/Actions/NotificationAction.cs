@@ -31,7 +31,7 @@ public class NotificationAction : IAction
                 MessageBox.Show(_message, "Mighty Mini Mouse", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
 
-            Logger.Instance.Info($"Notification shown: {_message}");
+            Logger.Instance.Debug($"Notification shown: {_message}");
         }
         catch (Exception ex)
         {

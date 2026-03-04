@@ -94,6 +94,27 @@ public class DeviceManager
         ConfigManager.Save(_config);
         Logger.Instance.Info($"Saved nickname '{known.Nickname}' for device {deviceId}");
     }
+
+    /// <summary>
+    /// Removes a known device entry from the configuration by device ID and saves.
+    /// </summary>
+    /// <returns>True if an entry was found and removed; false if no matching entry existed.</returns>
+    public bool RemoveDevice(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return false;
+
+        int removed = _config.KnownDevices.RemoveAll(d =>
+            string.Equals(d.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
+
+        if (removed > 0)
+        {
+            ConfigManager.Save(_config);
+            Logger.Instance.Info($"Removed device entry '{deviceId}' from known devices.");
+            return true;
+        }
+
+        return false;
+    }
 }
 
 public class DisplayDeviceInfo
