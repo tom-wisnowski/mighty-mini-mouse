@@ -12,18 +12,29 @@ namespace MightyMiniMouse;
 
 /// <summary>
 /// Settings dialog for visually recording mouse/keyboard events
-/// and mapping them to keystroke actions. Saves directly to config.json.
+/// and mapping them to keystroke actions. Supports multiple modes.
+/// Saves directly to config.json.
 /// </summary>
 public class SettingsDialog : Form
 {
     private readonly TrayApplication _app;
     private readonly AppConfig _config;
     private readonly MightyMiniMouse.Services.DeviceManager _deviceManager;
-    private readonly List<GestureDefinition> _gestures;
+
+    // Mode management
+    private readonly List<ModeDefinition> _modes;
+    private ModeDefinition _selectedMode;
 
     private const int Pad = 16; // uniform padding
 
-    // Controls
+    // Controls — Mode bar
+    private ComboBox _modeCombo = null!;
+    private Button _newModeBtn = null!;
+    private Button _copyModeBtn = null!;
+    private Button _renameModeBtn = null!;
+    private Button _deleteModeBtn = null!;
+
+    // Controls — Mapping
     private ListView _mappingList = null!;
     private Button _recordBtn = null!;
     private TextBox _inputKeyBox = null!;
@@ -43,17 +54,49 @@ public class SettingsDialog : Form
         _app = app;
         _config = config;
         _deviceManager = deviceManager;
-        _gestures = new List<GestureDefinition>(config.Gestures);
+
+        // Deep-copy modes so edits are non-destructive until Save
+        _modes = config.Modes.Select(m => new ModeDefinition
+        {
+            Id = m.Id,
+            Name = m.Name,
+            Gestures = m.Gestures.Select(g => new GestureDefinition
+            {
+                Id = g.Id,
+                Name = g.Name,
+                Type = g.Type,
+                TargetDeviceId = g.TargetDeviceId,
+                InputKeys = new List<string>(g.InputKeys),
+                PressCount = g.PressCount,
+                TimeWindowMs = g.TimeWindowMs,
+                Action = new ActionConfig
+                {
+                    Type = g.Action.Type,
+                    Path = g.Action.Path,
+                    Arguments = g.Action.Arguments,
+                    Url = g.Action.Url,
+                    HttpMethod = g.Action.HttpMethod,
+                    Body = g.Action.Body,
+                    Keystroke = g.Action.Keystroke,
+                    Message = g.Action.Message
+                },
+                SuppressInput = g.SuppressInput
+            }).ToList()
+        }).ToList();
+
+        // Resolve selected mode (match active mode, or first)
+        _selectedMode = _modes.FirstOrDefault(m => m.Id == config.ActiveModeId) ?? _modes[0];
 
         InitializeForm();
+        PopulateModeCombo();
         PopulateList();
     }
 
     private void InitializeForm()
     {
         Text = "Mighty Mini Mouse — Mappings";
-        ClientSize = new Size(740, 560);
-        MinimumSize = new Size(620, 500);
+        ClientSize = new Size(740, 620);
+        MinimumSize = new Size(620, 560);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
         Font = new Font("Segoe UI", 9);
@@ -61,10 +104,57 @@ public class SettingsDialog : Form
         KeyPreview = true; // Capture keys at form level (needed for BT HID recording)
         ForeColor = Color.White;
         Padding = new Padding(Pad);
-        KeyPreview = true; // ensure we see Alt/F10 before the menu strip steals them
 
         int y = Pad;
         int contentWidth = ClientSize.Width - (Pad * 2);
+
+        // ── Mode Selector Bar ──
+        var modeLabel = new Label
+        {
+            Text = "Mode:",
+            Location = new Point(Pad, y + 4),
+            AutoSize = true,
+            ForeColor = Color.FromArgb(180, 180, 180),
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        };
+        Controls.Add(modeLabel);
+
+        _modeCombo = new ComboBox
+        {
+            Location = new Point(Pad + 50, y),
+            Size = new Size(200, 26),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = Color.FromArgb(45, 45, 45),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        _modeCombo.SelectedIndexChanged += OnModeSelectionChanged;
+        Controls.Add(_modeCombo);
+
+        int btnX = Pad + 260;
+        int btnW = 70;
+        int btnGap = 4;
+
+        _newModeBtn = CreateSmallButton("New", btnX, y, btnW, Color.FromArgb(0, 120, 215));
+        _newModeBtn.Click += NewMode;
+        Controls.Add(_newModeBtn);
+        btnX += btnW + btnGap;
+
+        _copyModeBtn = CreateSmallButton("Copy", btnX, y, btnW, Color.FromArgb(0, 120, 215));
+        _copyModeBtn.Click += CopyMode;
+        Controls.Add(_copyModeBtn);
+        btnX += btnW + btnGap;
+
+        _renameModeBtn = CreateSmallButton("Rename", btnX, y, btnW, Color.FromArgb(80, 80, 80));
+        _renameModeBtn.Click += RenameMode;
+        Controls.Add(_renameModeBtn);
+        btnX += btnW + btnGap;
+
+        _deleteModeBtn = CreateSmallButton("Delete", btnX, y, btnW, Color.FromArgb(180, 50, 50));
+        _deleteModeBtn.Click += DeleteMode;
+        Controls.Add(_deleteModeBtn);
+
+        y += 34;
 
         // ── Existing Mappings List ──
         var listLabel = new Label
@@ -81,7 +171,7 @@ public class SettingsDialog : Form
         _mappingList = new ListView
         {
             Location = new Point(Pad, y),
-            Size = new Size(contentWidth, 180),
+            Size = new Size(contentWidth, 170),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             View = View.Details,
             FullRowSelect = true,
@@ -291,10 +381,199 @@ public class SettingsDialog : Form
         CancelButton = _cancelBtn;
     }
 
+    private static Button CreateSmallButton(string text, int x, int y, int width, Color backColor)
+    {
+        return new Button
+        {
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(width, 26),
+            BackColor = backColor,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8)
+        };
+    }
+
+    // ── Mode Management ──
+
+    private void PopulateModeCombo()
+    {
+        _modeCombo.SelectedIndexChanged -= OnModeSelectionChanged;
+        _modeCombo.Items.Clear();
+        foreach (var mode in _modes)
+            _modeCombo.Items.Add(mode.Name);
+
+        int idx = _modes.IndexOf(_selectedMode);
+        if (idx >= 0) _modeCombo.SelectedIndex = idx;
+
+        _modeCombo.SelectedIndexChanged += OnModeSelectionChanged;
+        UpdateModeButtonStates();
+    }
+
+    private void OnModeSelectionChanged(object? sender, EventArgs e)
+    {
+        if (_modeCombo.SelectedIndex < 0 || _modeCombo.SelectedIndex >= _modes.Count) return;
+        _selectedMode = _modes[_modeCombo.SelectedIndex];
+        PopulateList();
+        UpdateModeButtonStates();
+    }
+
+    private void UpdateModeButtonStates()
+    {
+        _deleteModeBtn.Enabled = _modes.Count > 1;
+    }
+
+    private void NewMode(object? sender, EventArgs e)
+    {
+        string? name = PromptForName("New Mode", "Enter a name for the new mode:", "");
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var newMode = new ModeDefinition { Name = name };
+        _modes.Add(newMode);
+        _selectedMode = newMode;
+        PopulateModeCombo();
+        PopulateList();
+
+        _statusLabel.Text = $"Created mode: {name}";
+        _statusLabel.ForeColor = Color.FromArgb(100, 200, 100);
+    }
+
+    private void CopyMode(object? sender, EventArgs e)
+    {
+        string? name = PromptForName("Copy Mode", $"Enter a name for the copy of '{_selectedMode.Name}':",
+            $"{_selectedMode.Name} (Copy)");
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var copy = new ModeDefinition
+        {
+            Name = name,
+            Gestures = _selectedMode.Gestures.Select(g => new GestureDefinition
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = g.Name,
+                Type = g.Type,
+                TargetDeviceId = g.TargetDeviceId,
+                InputKeys = new List<string>(g.InputKeys),
+                PressCount = g.PressCount,
+                TimeWindowMs = g.TimeWindowMs,
+                Action = new ActionConfig
+                {
+                    Type = g.Action.Type,
+                    Path = g.Action.Path,
+                    Arguments = g.Action.Arguments,
+                    Url = g.Action.Url,
+                    HttpMethod = g.Action.HttpMethod,
+                    Body = g.Action.Body,
+                    Keystroke = g.Action.Keystroke,
+                    Message = g.Action.Message
+                },
+                SuppressInput = g.SuppressInput
+            }).ToList()
+        };
+        _modes.Add(copy);
+        _selectedMode = copy;
+        PopulateModeCombo();
+        PopulateList();
+
+        _statusLabel.Text = $"Copied mode as: {name}";
+        _statusLabel.ForeColor = Color.FromArgb(100, 200, 100);
+    }
+
+    private void RenameMode(object? sender, EventArgs e)
+    {
+        string? name = PromptForName("Rename Mode", $"Enter a new name for '{_selectedMode.Name}':", _selectedMode.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        _selectedMode.Name = name;
+        PopulateModeCombo();
+
+        _statusLabel.Text = $"Renamed to: {name}";
+        _statusLabel.ForeColor = Color.FromArgb(100, 200, 100);
+    }
+
+    private void DeleteMode(object? sender, EventArgs e)
+    {
+        if (_modes.Count <= 1)
+        {
+            MessageBox.Show("Cannot delete the last remaining mode.", "Delete Mode",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show($"Delete mode '{_selectedMode.Name}' and all its mappings?",
+            "Delete Mode", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+        if (result != DialogResult.Yes) return;
+
+        string deletedName = _selectedMode.Name;
+        _modes.Remove(_selectedMode);
+        _selectedMode = _modes[0];
+        PopulateModeCombo();
+        PopulateList();
+
+        _statusLabel.Text = $"Deleted mode: {deletedName}";
+        _statusLabel.ForeColor = Color.FromArgb(255, 200, 100);
+    }
+
+    private static string? PromptForName(string title, string prompt, string defaultValue)
+    {
+        using var dlg = new Form
+        {
+            Text = title,
+            ClientSize = new Size(360, 120),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = Color.FromArgb(40, 40, 40),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9)
+        };
+
+        var lbl = new Label { Text = prompt, Location = new Point(16, 12), AutoSize = true };
+        var txt = new TextBox
+        {
+            Text = defaultValue,
+            Location = new Point(16, 36),
+            Size = new Size(320, 24),
+            BackColor = Color.FromArgb(55, 55, 55),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        var ok = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            Location = new Point(170, 72),
+            Size = new Size(80, 30),
+            BackColor = Color.FromArgb(0, 120, 215),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(258, 72),
+            Size = new Size(80, 30),
+            BackColor = Color.FromArgb(60, 60, 60),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+
+        dlg.Controls.AddRange([lbl, txt, ok, cancel]);
+        dlg.AcceptButton = ok;
+        dlg.CancelButton = cancel;
+
+        return dlg.ShowDialog() == DialogResult.OK ? txt.Text.Trim() : null;
+    }
+
+    // ── Mapping List ──
+
     private void PopulateList()
     {
         _mappingList.Items.Clear();
-        foreach (var g in _gestures)
+        foreach (var g in _selectedMode.Gestures)
         {
             var item = new ListViewItem(g.Name);
             item.SubItems.Add(string.Join(" + ", g.InputKeys));
@@ -572,7 +851,7 @@ public class SettingsDialog : Form
             }
         };
 
-        _gestures.Add(gesture);
+        _selectedMode.Gestures.Add(gesture);
         PopulateList();
 
         // Clear inputs for next mapping
@@ -583,7 +862,7 @@ public class SettingsDialog : Form
         _statusLabel.Text = $"Added: {name}";
         _statusLabel.ForeColor = Color.FromArgb(100, 200, 100);
 
-        Debug.WriteLine($"[MMM][Settings] Added gesture: {name} ({inputKey} → {keystroke})");
+        Debug.WriteLine($"[MMM][Settings] Added gesture to mode '{_selectedMode.Name}': {name} ({inputKey} → {keystroke})");
     }
 
     private void RemoveMapping(object? sender, EventArgs e)
@@ -592,7 +871,7 @@ public class SettingsDialog : Form
 
         var selected = _mappingList.SelectedItems[0];
         var gesture = (GestureDefinition)selected.Tag!;
-        _gestures.Remove(gesture);
+        _selectedMode.Gestures.Remove(gesture);
         PopulateList();
 
         _statusLabel.Text = $"Removed: {gesture.Name}";
@@ -605,11 +884,14 @@ public class SettingsDialog : Form
     {
         try
         {
-            _config.Gestures = _gestures;
+            _config.Modes = _modes;
+            _config.ActiveModeId = _selectedMode.Id;
+            // Clear legacy gestures list
+            _config.Gestures = [];
             ConfigManager.Save(_config);
 
-            Logging.Logger.Instance.Info($"Settings saved: {_gestures.Count} gesture(s) written to config.json");
-            Debug.WriteLine($"[MMM][Settings] Saved {_gestures.Count} gestures to config.json");
+            Logging.Logger.Instance.Info($"Settings saved: {_modes.Count} mode(s), active='{_selectedMode.Name}'");
+            Debug.WriteLine($"[MMM][Settings] Saved {_modes.Count} modes to config.json");
 
             // Save succeeded — now close the dialog with OK
             DialogResult = DialogResult.OK;

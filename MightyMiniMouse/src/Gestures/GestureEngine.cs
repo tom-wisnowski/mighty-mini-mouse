@@ -13,6 +13,7 @@ public class GestureEngine : IDisposable
     private readonly Dictionary<string, GestureTracker> _trackers = new();
     private readonly Dictionary<string, SequenceTracker> _sequenceTrackers = new();
     private readonly System.Timers.Timer _holdCheckTimer;
+    private string _modeName;
 
     // Tracks currently held buttons/keys
     private readonly HashSet<string> _currentlyHeld = new();
@@ -24,8 +25,9 @@ public class GestureEngine : IDisposable
 
     private bool _disposed;
 
-    public GestureEngine(List<GestureDefinition> gestures)
+    public GestureEngine(List<GestureDefinition> gestures, string modeName = "Unknown")
     {
+        _modeName = modeName;
         // Prioritize device-specific gestures over wildcard (Any Device) gestures
         _gestures = gestures.OrderByDescending(g => !string.IsNullOrEmpty(g.TargetDeviceId)).ToList();
 
@@ -34,6 +36,10 @@ public class GestureEngine : IDisposable
         {
             _sequenceTrackers[gesture.Id] = new SequenceTracker();
         }
+
+        Debug.WriteLine($"[MMM][ENGINE] GestureEngine created for mode '{_modeName}' with {_gestures.Count} gesture(s):");
+        foreach (var g in _gestures)
+            Debug.WriteLine($"[MMM][ENGINE]   - {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke}");
 
         // Timer ticks every 50ms to check for long-hold gestures
         _holdCheckTimer = new System.Timers.Timer(50);
@@ -72,8 +78,9 @@ public class GestureEngine : IDisposable
         return shouldSuppress;
     }
 
-    public void UpdateGestures(List<GestureDefinition> newGestures)
+    public void UpdateGestures(List<GestureDefinition> newGestures, string modeName = "Unknown")
     {
+        _modeName = modeName;
         _gestures.Clear();
         // Prioritize device-specific gestures over wildcard (Any Device) gestures
         _gestures.AddRange(newGestures.OrderByDescending(g => !string.IsNullOrEmpty(g.TargetDeviceId)));
@@ -85,7 +92,10 @@ public class GestureEngine : IDisposable
             _sequenceTrackers[gesture.Id] = new SequenceTracker();
         }
 
-        Logger.Instance.Info($"Gesture engine updated with {newGestures.Count} gestures.");
+        Logger.Instance.Info($"Gesture engine updated for mode '{_modeName}' with {newGestures.Count} gestures.");
+        Debug.WriteLine($"[MMM][ENGINE] UpdateGestures for mode '{_modeName}' — {newGestures.Count} gesture(s):");
+        foreach (var g in _gestures)
+            Debug.WriteLine($"[MMM][ENGINE]   - {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke}");
     }
 
     private void RecordPressDown(InputEvent input)
@@ -131,7 +141,7 @@ public class GestureEngine : IDisposable
                 // Cancel any pending single-press timer for this key
                 CancelSinglePressTimer(input.InputKey);
 
-                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}]");
+                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
                 OnGestureRecognized?.Invoke(gesture);
                 tracker.Reset();
                 return gesture.SuppressInput;
@@ -157,7 +167,7 @@ public class GestureEngine : IDisposable
                 }
                 else
                 {
-                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}]");
+                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
                     OnGestureRecognized?.Invoke(gesture);
                     tracker.Reset();
                     return gesture.SuppressInput;
@@ -185,7 +195,7 @@ public class GestureEngine : IDisposable
                 if (held >= (uint)gesture.TimeWindowMs && !tracker.HoldFired)
                 {
                     tracker.HoldFired = true;
-                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}]");
+                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
                     OnGestureRecognized?.Invoke(gesture);
                 }
             }

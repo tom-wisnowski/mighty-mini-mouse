@@ -15,6 +15,7 @@ public class TrayApplication : IDisposable
 {
     private NotifyIcon? _trayIcon;
     private ContextMenuStrip? _contextMenu;
+    private ToolStripMenuItem? _modeSubmenu;
 
     private MouseHook? _mouseHook;
     private KeyboardHook? _keyboardHook;
@@ -24,6 +25,7 @@ public class TrayApplication : IDisposable
     private MightyMiniMouse.Services.DeviceManager? _deviceManager;
 
     private AppConfig _config = new();
+    private ModeDefinition _activeMode = new();
     private bool _enabled = true;
     private bool _disposed;
     private bool _dialogOpen;
@@ -64,9 +66,13 @@ public class TrayApplication : IDisposable
 
     public void Initialize()
     {
-        // Load configuration
+        // Load configuration — two phases:
+        // 1) Pre-initialize logger from the raw config so migration messages are captured
+        // 2) Run full Load() which may trigger version migration
         try
         {
+            // Pre-read logging config to initialize logger early (before migration runs)
+            PreInitializeLogger();
             _config = ConfigManager.Load();
         }
         catch (Exception ex)
@@ -81,17 +87,22 @@ public class TrayApplication : IDisposable
         // after Application.Run() has installed the WinForms context.
         _syncContext = null;
 
-        // Initialize logger
+        // Re-initialize logger with final config (in case migration changed anything)
         var logLevel = Enum.TryParse<LogLevel>(_config.Logging.LogLevel, true, out var level)
             ? level : LogLevel.Info;
         Logger.Initialize(_config.Logging.Enabled, _config.Logging.LogFile, logLevel);
+
+        // Resolve active mode
+        _activeMode = _config.Modes.FirstOrDefault(m => m.Id == _config.ActiveModeId)
+                      ?? _config.Modes[0];
 
         Logger.Instance.Info("===================================================");
         Logger.Instance.Info("=== Mighty Mini Mouse starting ===");
         Logger.Instance.Info($"  PID: {Environment.ProcessId}");
         Logger.Instance.Info($"  .NET: {Environment.Version}");
         Logger.Instance.Info($"  OS: {Environment.OSVersion}");
-        Logger.Instance.Info($"  Config: {_config.Gestures.Count} gesture(s) loaded");
+        Logger.Instance.Info($"  Active mode: {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
+        Logger.Instance.Info($"  Modes: {_config.Modes.Count} defined");
         Logger.Instance.Info($"  Config dir: {ConfigManager.AppDataDir}");
         Logger.Instance.Info($"  Logging: level={logLevel}, file={_config.Logging.LogFile}");
         if (_config.TargetDevice.Enabled)
@@ -115,12 +126,54 @@ public class TrayApplication : IDisposable
         Debug.WriteLine("[MMM] Initialization complete. Interceptor is active.");
     }
 
+    /// <summary>
+    /// Pre-initialize the logger by reading logging settings from the raw config file.
+    /// This ensures migration log messages are captured before ConfigManager.Load() runs.
+    /// </summary>
+    private static void PreInitializeLogger()
+    {
+        try
+        {
+            if (!System.IO.File.Exists(ConfigManager.ConfigPath)) return;
+
+            var json = System.IO.File.ReadAllText(ConfigManager.ConfigPath);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            bool enabled = true;
+            string logFile = "interceptor.log";
+            string logLevelStr = "Info";
+
+            if (root.TryGetProperty("logging", out var logging))
+            {
+                if (logging.TryGetProperty("enabled", out var e)) enabled = e.GetBoolean();
+                if (logging.TryGetProperty("logFile", out var f)) logFile = f.GetString() ?? logFile;
+                if (logging.TryGetProperty("logLevel", out var l)) logLevelStr = l.GetString() ?? logLevelStr;
+            }
+
+            var logLevel = Enum.TryParse<LogLevel>(logLevelStr, true, out var level)
+                ? level : LogLevel.Info;
+            Logger.Initialize(enabled, logFile, logLevel);
+        }
+        catch
+        {
+            // If pre-init fails, Logger stays as the disabled default — migration messages
+            // won't be logged but the app will still work fine.
+        }
+    }
+
     private void SetupTrayIcon()
     {
         _contextMenu = new ContextMenuStrip();
 
         var enableItem = new ToolStripMenuItem(_enabled ? "✓ Enabled" : "  Disabled");
         enableItem.Click += (_, _) => ToggleEnabled(enableItem);
+
+        // Mode submenu — quick-switch active mode
+        _modeSubmenu = new ToolStripMenuItem("Mode");
+        BuildModeSubmenu();
+        _contextMenu.Items.Add(_modeSubmenu);
+        _contextMenu.Items.Add(new ToolStripSeparator());
 
         // Device picker — opens a dialog
         var devicePickerItem = new ToolStripMenuItem("Device Settings...");
@@ -147,7 +200,7 @@ public class TrayApplication : IDisposable
 
         _trayIcon = new NotifyIcon
         {
-            Text = "Mighty Mini Mouse",
+            Text = $"Mighty Mini Mouse — {_activeMode.Name}",
             Icon = CreateDefaultIcon(),
             ContextMenuStrip = _contextMenu,
             Visible = true
@@ -157,6 +210,54 @@ public class TrayApplication : IDisposable
 
         // Set up the notification bridge so actions can show balloon tips
         TrayNotificationBridge.TrayIcon = _trayIcon;
+    }
+
+    private void BuildModeSubmenu()
+    {
+        if (_modeSubmenu == null) return;
+        _modeSubmenu.DropDownItems.Clear();
+
+        foreach (var mode in _config.Modes)
+        {
+            var item = new ToolStripMenuItem(mode.Name)
+            {
+                Checked = mode.Id == _activeMode.Id,
+                Tag = mode.Id
+            };
+            item.Click += (s, _) =>
+            {
+                if (s is ToolStripMenuItem mi && mi.Tag is string modeId)
+                    SwitchMode(modeId);
+            };
+            _modeSubmenu.DropDownItems.Add(item);
+        }
+    }
+
+    private void SwitchMode(string modeId)
+    {
+        var mode = _config.Modes.FirstOrDefault(m => m.Id == modeId);
+        if (mode == null) return;
+
+        _activeMode = mode;
+        _config.ActiveModeId = mode.Id;
+        ConfigManager.Save(_config);
+
+        // Update the gesture engine with the new mode's gestures
+        _gestureEngine?.UpdateGestures(_activeMode.Gestures, _activeMode.Name);
+
+        // Update menu check marks
+        if (_modeSubmenu != null)
+        {
+            foreach (ToolStripMenuItem mi in _modeSubmenu.DropDownItems)
+                mi.Checked = (mi.Tag as string) == modeId;
+        }
+
+        // Update tooltip
+        if (_trayIcon != null)
+            _trayIcon.Text = $"Mighty Mini Mouse — {_activeMode.Name}";
+
+        Logger.Instance.Info($"Switched to mode: {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
+        Debug.WriteLine($"[MMM] Switched to mode: {_activeMode.Name}");
     }
 
     private void InitializeHooks()
@@ -175,10 +276,10 @@ public class TrayApplication : IDisposable
             }
         }
 
-        // Initialize gesture engine
-        _gestureEngine = new GestureEngine(_config.Gestures);
+        // Initialize gesture engine with active mode's gestures
+        _gestureEngine = new GestureEngine(_activeMode.Gestures, _activeMode.Name);
         _gestureEngine.OnGestureRecognized += OnGestureRecognized;
-        Logger.Instance.Debug($"Gesture engine initialized with {_config.Gestures.Count} definition(s).");
+        Logger.Instance.Debug($"Gesture engine initialized with {_activeMode.Gestures.Count} definition(s) from mode '{_activeMode.Name}'.");
 
         // Install mouse hook
         try
@@ -375,7 +476,7 @@ public class TrayApplication : IDisposable
     private void OnGestureRecognized(GestureDefinition gesture)
     {
         Logger.Instance.Debug($"Gesture recognized: {gesture.Name} [{gesture.Type}]");
-        Debug.WriteLine($"[MMM][GESTURE] ★ RECOGNIZED: {gesture.Name} [{gesture.Type}]");
+        Debug.WriteLine($"[MMM][GESTURE] ★ RECOGNIZED: {gesture.Name} [{gesture.Type}] [Mode: {_activeMode.Name}]");
         Debug.WriteLine($"[MMM][GESTURE]   Action type: {gesture.Action.Type}");
         Debug.WriteLine($"[MMM][GESTURE]   Keystroke: {gesture.Action.Keystroke}");
 
@@ -451,12 +552,22 @@ public class TrayApplication : IDisposable
 
         if (dialog.ShowDialog() == DialogResult.OK)
         {
-            // Reload gestures into the running engine
+            // Reload config and refresh mode-related state
             _config = ConfigManager.Load();
+            _activeMode = _config.Modes.FirstOrDefault(m => m.Id == _config.ActiveModeId)
+                          ?? _config.Modes[0];
+
             _gestureEngine?.Dispose();
-            _gestureEngine = new GestureEngine(_config.Gestures);
+            _gestureEngine = new GestureEngine(_activeMode.Gestures, _activeMode.Name);
             _gestureEngine.OnGestureRecognized += OnGestureRecognized;
-            Debug.WriteLine("[MMM] Configuration reloaded from settings dialog.");
+
+            // Rebuild mode submenu to reflect any added/removed/renamed modes
+            BuildModeSubmenu();
+
+            if (_trayIcon != null)
+                _trayIcon.Text = $"Mighty Mini Mouse — {_activeMode.Name}";
+
+            Debug.WriteLine($"[MMM] Configuration reloaded. Active mode: {_activeMode.Name}");
         }
     }
 
