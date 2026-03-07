@@ -290,9 +290,7 @@ public class TrayApplication : IDisposable
         bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
         if (suppress)
         {
-            string msg = $"[MMM][SUPPRESS] Mouse input suppressed: {inputEvent.InputKey} {state}";
-            Debug.WriteLine(msg);
-            Logger.Instance.Debug(msg);
+            Debug.WriteLine($"[MMM][SUPPRESS] Mouse input suppressed: {inputEvent.InputKey} {state}");
         }
         return suppress;
     }
@@ -369,9 +367,7 @@ public class TrayApplication : IDisposable
         bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
         if (suppress)
         {
-            string msg = $"[MMM][SUPPRESS] Keyboard input suppressed: {inputEvent.InputKey} {inputEvent.State}";
-            Debug.WriteLine(msg);
-            Logger.Instance.Debug(msg);
+            Debug.WriteLine($"[MMM][SUPPRESS] Keyboard input suppressed: {inputEvent.InputKey} {inputEvent.State}");
         }
         return suppress;
     }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Timers;
+using System.Diagnostics;
 using MightyMiniMouse.Logging;
 
 namespace MightyMiniMouse.Gestures;
@@ -130,7 +131,7 @@ public class GestureEngine : IDisposable
                 // Cancel any pending single-press timer for this key
                 CancelSinglePressTimer(input.InputKey);
 
-                Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}]");
+                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}]");
                 OnGestureRecognized?.Invoke(gesture);
                 tracker.Reset();
                 return gesture.SuppressInput;
@@ -156,7 +157,7 @@ public class GestureEngine : IDisposable
                 }
                 else
                 {
-                    Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}]");
+                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}]");
                     OnGestureRecognized?.Invoke(gesture);
                     tracker.Reset();
                     return gesture.SuppressInput;
@@ -184,7 +185,7 @@ public class GestureEngine : IDisposable
                 if (held >= (uint)gesture.TimeWindowMs && !tracker.HoldFired)
                 {
                     tracker.HoldFired = true;
-                    Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}]");
+                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}]");
                     OnGestureRecognized?.Invoke(gesture);
                 }
             }
@@ -200,7 +201,7 @@ public class GestureEngine : IDisposable
                  // We verify the device against the incoming input event (since chords trigger on final button down)
                  if (!IsDeviceMatch(gesture, input.DeviceId)) continue;
 
-                Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (Chord) [Device: {input.DeviceId}]");
+                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (Chord) [Device: {input.DeviceId}]");
                 OnGestureRecognized?.Invoke(gesture);
                 return gesture.SuppressInput;
             }
@@ -254,7 +255,7 @@ public class GestureEngine : IDisposable
                 // Sequence complete?
                 if (seqTracker.CurrentIndex >= gesture.InputKeys.Count)
                 {
-                    Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (Sequence) [Device: {input.DeviceId}]");
+                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (Sequence) [Device: {input.DeviceId}]");
                     OnGestureRecognized?.Invoke(gesture);
                     seqTracker.Reset();
                     return gesture.SuppressInput;
@@ -307,7 +308,7 @@ public class GestureEngine : IDisposable
             // If press count is still 1, the user didn't follow up with another press
             if (_trackers.TryGetValue(inputKey, out var tracker) && tracker.PressCount == 1)
             {
-                Logger.Instance.Debug($"Gesture recognized: {gesture.Name} (SinglePress, deferred) [Device: {deviceId}]");
+                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress, deferred) [Device: {deviceId}]");
                 OnGestureRecognized?.Invoke(gesture);
                 tracker.Reset();
             }
