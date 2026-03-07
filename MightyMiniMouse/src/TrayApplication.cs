@@ -287,7 +287,12 @@ public class TrayApplication : IDisposable
         };
 
         Debug.WriteLine($"[MMM][GESTURE-IN] Feeding: {inputEvent.InputKey} {state} (Device: {deviceId})");
-        return _gestureEngine?.ProcessInput(inputEvent) ?? false;
+        bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
+        if (suppress)
+        {
+            Debug.WriteLine($"[MMM][SUPPRESS] Mouse input suppressed: {inputEvent.InputKey} {state}");
+        }
+        return suppress;
     }
 
     private bool OnKeyEvent(KeyboardHookEventArgs args)
@@ -359,7 +364,12 @@ public class TrayApplication : IDisposable
             DeviceId = deviceId
         };
 
-        return _gestureEngine?.ProcessInput(inputEvent) ?? false;
+        bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
+        if (suppress)
+        {
+            Debug.WriteLine($"[MMM][SUPPRESS] Keyboard input suppressed: {inputEvent.InputKey} {inputEvent.State}");
+        }
+        return suppress;
     }
 
     private void OnGestureRecognized(GestureDefinition gesture)
