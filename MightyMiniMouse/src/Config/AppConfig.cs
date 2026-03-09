@@ -7,9 +7,9 @@ public class AppConfig
 {
     /// <summary>
     /// Schema version for upgrade detection.
-    /// v1 = legacy flat gestures, v2 = modes-based.
+    /// v1 = legacy flat gestures, v2 = modes-based, v3 = suppressedCategories.
     /// </summary>
-    public int ConfigVersion { get; set; } = 2;
+    public int ConfigVersion { get; set; } = 3;
 
     public DeviceConfig TargetDevice { get; set; } = new();
 
@@ -53,4 +53,11 @@ public class LoggingConfig
     public bool Enabled { get; set; } = true;
     public string LogFile { get; set; } = "interceptor.log";
     public string LogLevel { get; set; } = "Info";
+
+    /// <summary>
+    /// Diagnostic output categories to suppress. Events in these categories
+    /// will not appear in either the log file or the debug output stream.
+    /// Remove a category from this list to re-enable it.
+    /// </summary>
+    public List<string> SuppressedCategories { get; set; } = ["MouseMove", "RawInput"];
 }

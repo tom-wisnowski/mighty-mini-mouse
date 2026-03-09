@@ -92,7 +92,7 @@ public class DeviceManager
 
         known.Nickname = nickname.Trim();
         ConfigManager.Save(_config);
-        Logger.Instance.Info($"Saved nickname '{known.Nickname}' for device {deviceId}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryDevice, $"Saved nickname '{known.Nickname}' for device {deviceId}");
     }
 
     /// <summary>
@@ -109,7 +109,7 @@ public class DeviceManager
         if (removed > 0)
         {
             ConfigManager.Save(_config);
-            Logger.Instance.Info($"Removed device entry '{deviceId}' from known devices.");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryDevice, $"Removed device entry '{deviceId}' from known devices.");
             return true;
         }
 

@@ -24,11 +24,11 @@ public class LaunchProcessAction : IAction
                 UseShellExecute = true
             };
             Process.Start(psi);
-            Logger.Instance.Debug($"Launched process: {_path} {_arguments}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Launched process: {_path} {_arguments}");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error($"Failed to launch process: {_path}", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Failed to launch process: {_path}", ex);
         }
         return Task.CompletedTask;
     }

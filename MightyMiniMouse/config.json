@@ -1,4 +1,5 @@
 {
+  "configVersion": 3,
   "targetDevice": {
     "enabled": false,
     "devicePath": null,
@@ -8,7 +9,11 @@
   "logging": {
     "enabled": true,
     "logFile": "interceptor.log",
-    "logLevel": "Info"
+    "logLevel": "Info",
+    "suppressedCategories": [
+      "MouseMove",
+      "RawInput"
+    ]
   },
   "startWithWindows": false
 }

@@ -34,7 +34,7 @@ public class PowerShellAction : IAction
             using var process = Process.Start(psi);
             if (process == null)
             {
-                Logger.Instance.Error($"Failed to start PowerShell for script: {_scriptPath}");
+                DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Failed to start PowerShell for script: {_scriptPath}");
                 return;
             }
 
@@ -49,20 +49,20 @@ public class PowerShellAction : IAction
 
             if (process.ExitCode == 0)
             {
-                Logger.Instance.Debug($"PowerShell script completed: {_scriptPath} (exit: 0)");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"PowerShell script completed: {_scriptPath} (exit: 0)");
                 if (!string.IsNullOrWhiteSpace(output))
-                    Logger.Instance.Debug($"PowerShell output: {output.Trim()}");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"PowerShell output: {output.Trim()}");
             }
             else
             {
-                Logger.Instance.Debug($"PowerShell script exited with code {process.ExitCode}: {_scriptPath}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"PowerShell script exited with code {process.ExitCode}: {_scriptPath}");
                 if (!string.IsNullOrWhiteSpace(error))
-                    Logger.Instance.Error($"PowerShell error: {error.Trim()}");
+                    DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"PowerShell error: {error.Trim()}");
             }
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error($"Failed to execute PowerShell script: {_scriptPath}", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Failed to execute PowerShell script: {_scriptPath}", ex);
         }
     }
 }

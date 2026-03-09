@@ -60,7 +60,7 @@ public sealed class MouseHook : IDisposable
         }
         catch (Exception ex)
         {
-            Logging.Logger.Instance.Error("Exception in mouse hook callback", ex);
+            Logging.DiagnosticOutput.LogError(Logging.DiagnosticOutput.CategoryMouseButton, "Exception in mouse hook callback", ex);
         }
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);

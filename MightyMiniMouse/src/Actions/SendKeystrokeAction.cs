@@ -76,11 +76,6 @@ public class SendKeystrokeAction : IAction
         ["`"] = 0xC0,        // VK_OEM_3 (backtick)
     };
 
-    private static readonly HashSet<string> ModifierKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Ctrl", "Control", "Alt", "Shift", "Win", "LWin", "RWin"
-    };
-
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -129,7 +124,7 @@ public class SendKeystrokeAction : IAction
         {
             var keys = _keystroke.Split('+', StringSplitOptions.TrimEntries);
 
-            Debug.WriteLine($"[MMM][SENDKEY] Parsing keystroke: '{_keystroke}' → {keys.Length} key(s)");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Parsing keystroke: '{_keystroke}' → {keys.Length} key(s)");
 
             var inputs = new List<INPUT>();
 
@@ -137,7 +132,7 @@ public class SendKeystrokeAction : IAction
             foreach (var key in keys)
             {
                 byte vk = ResolveVirtualKeyCode(key);
-                Debug.WriteLine($"[MMM][SENDKEY]   Key '{key}' → VK=0x{vk:X2}, action=DOWN");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"  Key '{key}' → VK=0x{vk:X2}, action=DOWN");
                 inputs.Add(CreateKeyInput(vk, down: true));
             }
 
@@ -145,36 +140,32 @@ public class SendKeystrokeAction : IAction
             for (int i = keys.Length - 1; i >= 0; i--)
             {
                 byte vk = ResolveVirtualKeyCode(keys[i]);
-                Debug.WriteLine($"[MMM][SENDKEY]   Key '{keys[i]}' → VK=0x{vk:X2}, action=UP");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"  Key '{keys[i]}' → VK=0x{vk:X2}, action=UP");
                 inputs.Add(CreateKeyInput(vk, down: false));
             }
 
             var inputArray = inputs.ToArray();
-            Debug.WriteLine($"[MMM][SENDKEY] Calling SendInput with {inputArray.Length} events...");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Calling SendInput with {inputArray.Length} events...");
 
             uint sent = SendInput((uint)inputArray.Length, inputArray, Marshal.SizeOf<INPUT>());
 
             if (sent == 0)
             {
                 int error = Marshal.GetLastWin32Error();
-                Logger.Instance.Error($"SendInput FAILED for '{_keystroke}': returned 0, Win32 error={error}");
-                Debug.WriteLine($"[MMM][SENDKEY] *** FAILED *** SendInput returned 0, GetLastError={error}");
+                DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"SendInput FAILED for '{_keystroke}': returned 0, Win32 error={error}");
             }
             else if (sent < inputArray.Length)
             {
-                Logger.Instance.Debug($"SendInput partial: sent {sent}/{inputArray.Length} for '{_keystroke}'");
-                Debug.WriteLine($"[MMM][SENDKEY] PARTIAL: sent {sent}/{inputArray.Length}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"SendInput partial: sent {sent}/{inputArray.Length} for '{_keystroke}'");
             }
             else
             {
-                Logger.Instance.Debug($"Sent keystroke: {_keystroke} ({sent} events)");
-                Debug.WriteLine($"[MMM][SENDKEY] SUCCESS: '{_keystroke}' — {sent} events injected");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Sent keystroke: {_keystroke} ({sent} events)");
             }
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error($"Failed to send keystroke: {_keystroke}", ex);
-            Debug.WriteLine($"[MMM][SENDKEY] EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Failed to send keystroke: {_keystroke}", ex);
         }
         return Task.CompletedTask;
     }

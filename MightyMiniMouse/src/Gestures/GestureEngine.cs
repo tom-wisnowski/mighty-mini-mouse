@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Timers;
-using System.Diagnostics;
 using MightyMiniMouse.Logging;
 
 namespace MightyMiniMouse.Gestures;
@@ -37,9 +36,9 @@ public class GestureEngine : IDisposable
             _sequenceTrackers[gesture.Id] = new SequenceTracker();
         }
 
-        Debug.WriteLine($"[MMM][ENGINE] GestureEngine created for mode '{_modeName}' with {_gestures.Count} gesture(s):");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"GestureEngine created for mode '{_modeName}' with {_gestures.Count} gesture(s):");
         foreach (var g in _gestures)
-            Debug.WriteLine($"[MMM][ENGINE]   - {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"  - {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke}");
 
         // Timer ticks every 50ms to check for long-hold gestures
         _holdCheckTimer = new System.Timers.Timer(50);
@@ -54,6 +53,8 @@ public class GestureEngine : IDisposable
     public bool ProcessInput(InputEvent input)
     {
         bool shouldSuppress = false;
+
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"ProcessInput: mode='{_modeName}', gestureCount={_gestures.Count}, key={input.InputKey}, state={input.State}, device={input.DeviceId}");
 
         if (input.State == PressState.Down)
         {
@@ -80,6 +81,8 @@ public class GestureEngine : IDisposable
 
     public void UpdateGestures(List<GestureDefinition> newGestures, string modeName = "Unknown")
     {
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"UpdateGestures START: old='{_modeName}' ({_gestures.Count} gestures) → new='{modeName}' ({newGestures.Count} gestures)");
+
         _modeName = modeName;
         _gestures.Clear();
         // Prioritize device-specific gestures over wildcard (Any Device) gestures
@@ -87,15 +90,23 @@ public class GestureEngine : IDisposable
         _trackers.Clear();
         _sequenceTrackers.Clear();
 
+        // Clear held-button state so stale holds don't bleed across modes
+        _currentlyHeld.Clear();
+
+        // Dispose pending single-press timers to prevent stale callbacks
+        foreach (var timer in _singlePressTimers.Values)
+            timer.Dispose();
+        _singlePressTimers.Clear();
+
         foreach (var gesture in newGestures.Where(g => g.Type == GestureType.Sequence))
         {
             _sequenceTrackers[gesture.Id] = new SequenceTracker();
         }
 
-        Logger.Instance.Info($"Gesture engine updated for mode '{_modeName}' with {newGestures.Count} gestures.");
-        Debug.WriteLine($"[MMM][ENGINE] UpdateGestures for mode '{_modeName}' — {newGestures.Count} gesture(s):");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"Gesture engine updated for mode '{_modeName}' with {newGestures.Count} gestures.");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"UpdateGestures DONE: mode='{_modeName}', loaded {_gestures.Count} gesture(s):");
         foreach (var g in _gestures)
-            Debug.WriteLine($"[MMM][ENGINE]   - {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"  [{g.Id[..8]}] {g.Name}: {string.Join("+", g.InputKeys)} → {g.Action.Type}:{g.Action.Keystroke} (device={g.TargetDeviceId ?? "Any"})");
     }
 
     private void RecordPressDown(InputEvent input)
@@ -132,6 +143,8 @@ public class GestureEngine : IDisposable
         tracker.LastUpTimestamp = input.Timestamp;
         uint holdDuration = input.Timestamp - tracker.LastDownTimestamp;
 
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"CheckPress: mode='{_modeName}', key={input.InputKey}, pressCount={tracker.PressCount}, holdDuration={holdDuration}ms, device={tracker.DeviceId}");
+
         // Check for MultiPress gestures first (higher priority)
         foreach (var gesture in _gestures.Where(g =>
             g.Type == GestureType.MultiPress && g.InputKeys.Contains(input.InputKey) && IsDeviceMatch(g, tracker.DeviceId)))
@@ -141,7 +154,8 @@ public class GestureEngine : IDisposable
                 // Cancel any pending single-press timer for this key
                 CancelSinglePressTimer(input.InputKey);
 
-                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (MultiPress x{gesture.PressCount}) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
+                DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"★ MATCH: {gesture.Name} (MultiPress x{gesture.PressCount}) [Mode: {_modeName}]");
                 OnGestureRecognized?.Invoke(gesture);
                 tracker.Reset();
                 return gesture.SuppressInput;
@@ -152,6 +166,7 @@ public class GestureEngine : IDisposable
         foreach (var gesture in _gestures.Where(g =>
             g.Type == GestureType.SinglePress && g.InputKeys.Contains(input.InputKey) && IsDeviceMatch(g, tracker.DeviceId)))
         {
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"SinglePress candidate: '{gesture.Name}', pressCount={tracker.PressCount}, holdDuration={holdDuration}ms vs threshold=300ms");
             if (tracker.PressCount == 1 && holdDuration < 300)
             {
                 // Check if there's a MultiPress gesture on the same key for the same device
@@ -167,11 +182,26 @@ public class GestureEngine : IDisposable
                 }
                 else
                 {
-                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (SinglePress) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
+                    DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"★ MATCH: {gesture.Name} (SinglePress) [Mode: {_modeName}]");
                     OnGestureRecognized?.Invoke(gesture);
                     tracker.Reset();
                     return gesture.SuppressInput;
                 }
+            }
+        }
+
+        // Log why no gesture matched
+        var candidateGestures = _gestures.Where(g =>
+            (g.Type == GestureType.SinglePress || g.Type == GestureType.MultiPress) &&
+            g.InputKeys.Contains(input.InputKey)).ToList();
+        if (candidateGestures.Count > 0)
+        {
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"NO MATCH for key={input.InputKey} in mode='{_modeName}'. Candidates:");
+            foreach (var g in candidateGestures)
+            {
+                bool deviceMatch = IsDeviceMatch(g, tracker.DeviceId);
+                DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryGestureEngine, $"  - '{g.Name}': type={g.Type}, gestureDevice={g.TargetDeviceId ?? "Any"}, inputDevice={tracker.DeviceId}, deviceMatch={deviceMatch}, pressCount={tracker.PressCount}/{g.PressCount}");
             }
         }
 
@@ -195,7 +225,7 @@ public class GestureEngine : IDisposable
                 if (held >= (uint)gesture.TimeWindowMs && !tracker.HoldFired)
                 {
                     tracker.HoldFired = true;
-                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (LongHold {held}ms) [Device: {tracker.DeviceId}] [Mode: {_modeName}]");
                     OnGestureRecognized?.Invoke(gesture);
                 }
             }
@@ -211,7 +241,7 @@ public class GestureEngine : IDisposable
                  // We verify the device against the incoming input event (since chords trigger on final button down)
                  if (!IsDeviceMatch(gesture, input.DeviceId)) continue;
 
-                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (Chord) [Device: {input.DeviceId}]");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (Chord) [Device: {input.DeviceId}]");
                 OnGestureRecognized?.Invoke(gesture);
                 return gesture.SuppressInput;
             }
@@ -265,7 +295,7 @@ public class GestureEngine : IDisposable
                 // Sequence complete?
                 if (seqTracker.CurrentIndex >= gesture.InputKeys.Count)
                 {
-                    Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (Sequence) [Device: {input.DeviceId}]");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (Sequence) [Device: {input.DeviceId}]");
                     OnGestureRecognized?.Invoke(gesture);
                     seqTracker.Reset();
                     return gesture.SuppressInput;
@@ -318,7 +348,7 @@ public class GestureEngine : IDisposable
             // If press count is still 1, the user didn't follow up with another press
             if (_trackers.TryGetValue(inputKey, out var tracker) && tracker.PressCount == 1)
             {
-                Debug.WriteLine($"[MMM][GESTURE] Recognized: {gesture.Name} (SinglePress, deferred) [Device: {deviceId}]");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Recognized: {gesture.Name} (SinglePress, deferred) [Device: {deviceId}]");
                 OnGestureRecognized?.Invoke(gesture);
                 tracker.Reset();
             }

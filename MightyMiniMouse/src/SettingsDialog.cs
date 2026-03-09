@@ -688,7 +688,7 @@ public class SettingsDialog : Form
             if (keyName != null)
             {
                 string resolvedId = _app.GetLastInputDeviceId();
-                Debug.WriteLine($"[MMM][RECORD-FORM] ✓ Captured key via ProcessCmdKey: Key.{keyName} on device {resolvedId}");
+                Logging.DiagnosticOutput.LogDebug(Logging.DiagnosticOutput.CategoryDevice, $"Captured key via ProcessCmdKey: Key.{keyName} on device {resolvedId}");
                 OnInputRecorded($"Key.{keyName}", resolvedId);
                 return true;
             }
@@ -713,7 +713,7 @@ public class SettingsDialog : Form
             if (keyName != null)
             {
                 string resolvedId = _app.GetLastInputDeviceId();
-                Debug.WriteLine($"[MMM][RECORD-FORM] ✓ Captured key via OnKeyDown: Key.{keyName} on device {resolvedId}");
+                Logging.DiagnosticOutput.LogDebug(Logging.DiagnosticOutput.CategoryDevice, $"Captured key via OnKeyDown: Key.{keyName} on device {resolvedId}");
                 OnInputRecorded($"Key.{keyName}", resolvedId);
                 e.Handled = true;
                 e.SuppressKeyPress = true;
@@ -862,7 +862,7 @@ public class SettingsDialog : Form
         _statusLabel.Text = $"Added: {name}";
         _statusLabel.ForeColor = Color.FromArgb(100, 200, 100);
 
-        Debug.WriteLine($"[MMM][Settings] Added gesture to mode '{_selectedMode.Name}': {name} ({inputKey} → {keystroke})");
+        Logging.DiagnosticOutput.LogDebug(Logging.DiagnosticOutput.CategoryConfig, $"Added gesture to mode '{_selectedMode.Name}': {name} ({inputKey} → {keystroke})");
     }
 
     private void RemoveMapping(object? sender, EventArgs e)
@@ -890,8 +890,7 @@ public class SettingsDialog : Form
             _config.Gestures = [];
             ConfigManager.Save(_config);
 
-            Logging.Logger.Instance.Info($"Settings saved: {_modes.Count} mode(s), active='{_selectedMode.Name}'");
-            Debug.WriteLine($"[MMM][Settings] Saved {_modes.Count} modes to config.json");
+            Logging.DiagnosticOutput.LogInfo(Logging.DiagnosticOutput.CategoryConfig, $"Settings saved: {_modes.Count} mode(s), active='{_selectedMode.Name}'");
 
             // Save succeeded — now close the dialog with OK
             DialogResult = DialogResult.OK;
@@ -899,7 +898,7 @@ public class SettingsDialog : Form
         }
         catch (Exception ex)
         {
-            Logging.Logger.Instance.Error("Failed to save config from settings dialog", ex);
+            Logging.DiagnosticOutput.LogError(Logging.DiagnosticOutput.CategoryConfig, "Failed to save config from settings dialog", ex);
             MessageBox.Show($"Failed to save: {ex.Message}", "Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             // Don't close — let user retry

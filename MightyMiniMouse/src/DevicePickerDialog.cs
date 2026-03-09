@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -55,8 +54,6 @@ public class DevicePickerDialog : Form
     private static readonly Color AccentGreen = Color.FromArgb(16, 185, 129);
     private static readonly Color AccentOrange = Color.FromArgb(255, 160, 30);
     private static readonly Color BorderColor = Color.FromArgb(60, 60, 60);
-
-    private const double ACTIVITY_DURATION_SECS = 2.0;
 
     public DevicePickerDialog(RawInputManager rawInputManager, string? currentDevicePath, MightyMiniMouse.Services.DeviceManager deviceManager, Action<IntPtr?, string?>? onDeviceSelected = null)
     {
@@ -154,7 +151,7 @@ public class DevicePickerDialog : Form
             PopulateDevices();
             _statusLabel.Text = "Device list refreshed.";
             _statusLabel.ForeColor = FgSecondary;
-            Debug.WriteLine("[MMM][PICKER] Device list refreshed manually");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Device list refreshed manually");
         };
 
         // ── Delete button ──
@@ -309,9 +306,9 @@ public class DevicePickerDialog : Form
             (d.Type == 2 && d.DevicePath.Contains("000D_0005"))
         ).ToList();
 
-        Debug.WriteLine($"[MMM][PICKER] Enumerated {allDevices.Count} total devices, {_allMice.Count} mice/keyboards/touchpads");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Enumerated {allDevices.Count} total devices, {_allMice.Count} mice/keyboards/touchpads");
         foreach (var m in _allMice)
-            Debug.WriteLine($"[MMM][PICKER]   Device: handle={m.Handle}, type={m.Type}, name={m.FriendlyName}, path={m.DevicePath}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"  Device: handle={m.Handle}, type={m.Type}, name={m.FriendlyName}, path={m.DevicePath}");
 
         // Deduplicate by VID+PID for display
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -345,7 +342,7 @@ public class DevicePickerDialog : Form
             int itemIndex = _deviceList.Items.Count;
             _itemVidPid[itemIndex] = vidPid;
 
-            Debug.WriteLine($"[MMM][PICKER]   Display row {itemIndex}: {displayName} vidpid={vidPid}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Display row {itemIndex}: {displayName} vidpid={vidPid}");
 
             _deviceList.Items.Add(item);
             mouseIndex++;
@@ -378,9 +375,9 @@ public class DevicePickerDialog : Form
         _activityTimer = new System.Windows.Forms.Timer { Interval = 200 };
         _activityTimer.Tick += ActivityTimer_Tick;
         _activityTimer.Start();
-        Debug.WriteLine($"[MMM][PICKER] Activity monitor started. _itemVidPid entries:");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Activity monitor started. _itemVidPid entries:");
         foreach (var kvp in _itemVidPid)
-            Debug.WriteLine($"[MMM][PICKER]   row[{kvp.Key}] = {kvp.Value}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"  row[{kvp.Key}] = {kvp.Value}");
     }
 
     private void RawInputManager_OnDeviceActivity(IntPtr handle)
@@ -410,7 +407,7 @@ public class DevicePickerDialog : Form
             {
                 if (handle == IntPtr.Zero)
                 {
-                    if (verbose) Debug.WriteLine($"[MMM][PICKER] Tick #{_tickCount}: handle=0 (synthetic input, ignoring)");
+                    if (verbose) DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Tick #{_tickCount}: handle=0 (synthetic input, ignoring)");
                     continue;
                 }
 
@@ -421,12 +418,12 @@ public class DevicePickerDialog : Form
                     string devicePath = RawInputManager.GetDeviceName(handle);
                     vidPid = RawInputManager.ExtractVidPid(devicePath) ?? devicePath;
                     _handleToVidPid[handle] = vidPid;
-                    Debug.WriteLine($"[MMM][PICKER] New handle {handle} → path={devicePath}");
-                    Debug.WriteLine($"[MMM][PICKER]   → Resolved VID/PID: {vidPid}");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"New handle {handle} → path={devicePath}");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"  → Resolved VID/PID: {vidPid}");
                 }
 
                 if (verbose)
-                    Debug.WriteLine($"[MMM][PICKER] Tick #{_tickCount}: Last handle={handle}, maps to VID/PID={vidPid}");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Tick #{_tickCount}: Last handle={handle}, maps to VID/PID={vidPid}");
 
                 if (!string.IsNullOrWhiteSpace(vidPid))
                 {
@@ -444,18 +441,18 @@ public class DevicePickerDialog : Form
                         foreach (var key in otherKeys)
                             _lastActivity.Remove(key);
 
-                        Debug.WriteLine($"[MMM][PICKER] ★ Activity changed: vidpid={vidPid} (handle={handle})");
+                        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"★ Activity changed: vidpid={vidPid} (handle={handle})");
                     }
                 }
                 else if (verbose)
                 {
-                    Debug.WriteLine($"[MMM][PICKER] Tick #{_tickCount}: handle={handle} has no VID/PID");
+                    DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Tick #{_tickCount}: handle={handle} has no VID/PID");
                 }
             }
         }
         else if (verbose)
         {
-            Debug.WriteLine($"[MMM][PICKER] Tick #{_tickCount}: no raw input handles active in last 200ms");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Tick #{_tickCount}: no raw input handles active in last 200ms");
         }
 
         // 2. Compute which items should currently show an active dot
@@ -471,7 +468,7 @@ public class DevicePickerDialog : Form
         }
 
         if (verbose)
-            Debug.WriteLine($"[MMM][PICKER] Active items: [{string.Join(", ", newActiveItems)}] (was: [{string.Join(", ", _activeItems)}])");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Active items: [{string.Join(", ", newActiveItems)}] (was: [{string.Join(", ", _activeItems)}])");
 
         // 3. Only redraw if the set of active items changed
         if (!newActiveItems.SetEquals(_activeItems))
@@ -479,9 +476,9 @@ public class DevicePickerDialog : Form
             var added = newActiveItems.Except(_activeItems).ToList();
             var removed = _activeItems.Except(newActiveItems).ToList();
             foreach (var idx in added)
-                Debug.WriteLine($"[MMM][PICKER] ● DOT ON  row {idx} (vidpid={_itemVidPid.GetValueOrDefault(idx, "?")})");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"● DOT ON  row {idx} (vidpid={_itemVidPid.GetValueOrDefault(idx, "?")})");
             foreach (var idx in removed)
-                Debug.WriteLine($"[MMM][PICKER] ○ DOT OFF row {idx}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"○ DOT OFF row {idx}");
 
             _activeItems.Clear();
             foreach (var idx in newActiveItems)
@@ -497,7 +494,7 @@ public class DevicePickerDialog : Form
                     firstBounds.Width,
                     lastBounds.Bottom - firstBounds.Top);
                 _deviceList.Invalidate(dotColumnRect);
-                Debug.WriteLine($"[MMM][PICKER] Invalidated dot column rect: {dotColumnRect}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Invalidated dot column rect: {dotColumnRect}");
             }
         }
     }
@@ -556,11 +553,11 @@ public class DevicePickerDialog : Form
                 AllDevicesSelected = true;
                 SelectedDevice = null;
                 _onDeviceSelected?.Invoke(null, null);
-                Debug.WriteLine($"[MMM][PICKER] Deleted active device — falling back to All Mice");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Deleted active device — falling back to All Mice");
             }
 
             if (removed) deletedCount++;
-            Debug.WriteLine($"[MMM][PICKER] Deleted device: {vidPid} (removed from config: {removed})");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Deleted device: {vidPid} (removed from config: {removed})");
         }
 
         PopulateDevices();
@@ -607,7 +604,7 @@ public class DevicePickerDialog : Form
         {
             SelectedDevice = device;
             AllDevicesSelected = false;
-            Debug.WriteLine($"[MMM][PICKER] Selected: {device.FriendlyName} ({device.DevicePath})");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Selected: {device.FriendlyName} ({device.DevicePath})");
             _onDeviceSelected?.Invoke(device.Handle, device.DevicePath);
             PopulateDevices(); // Redraw the active dot
         }
@@ -615,7 +612,7 @@ public class DevicePickerDialog : Form
         {
             SelectedDevice = null;
             AllDevicesSelected = true;
-            Debug.WriteLine("[MMM][PICKER] Selected ALL MICE");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Selected ALL MICE");
             _onDeviceSelected?.Invoke(null, null);
             PopulateDevices();
         }
@@ -711,7 +708,7 @@ public class DevicePickerDialog : Form
         _activityTimer?.Stop();
         _activityTimer?.Dispose();
         _activityTimer = null;
-        Debug.WriteLine("[MMM][PICKER] Dialog closing, activity monitor stopped");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Dialog closing, activity monitor stopped");
         base.OnFormClosing(e);
     }
 }

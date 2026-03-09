@@ -15,6 +15,17 @@ public sealed class KeyboardHook : IDisposable
     /// </summary>
     public event Func<KeyboardHookEventArgs, bool>? OnKeyEvent;
 
+    /// <summary>
+    /// Timestamp of the last keyboard event received by the hook.
+    /// Used for hook health monitoring — if this stops updating, Windows may have silently removed the hook.
+    /// </summary>
+    public DateTime LastEventTime { get; private set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Whether the hook handle is currently valid (non-zero).
+    /// </summary>
+    public bool IsInstalled => _hookId != IntPtr.Zero;
+
     public KeyboardHook()
     {
         _proc = HookCallback;
@@ -30,18 +41,43 @@ public sealed class KeyboardHook : IDisposable
         if (_hookId == IntPtr.Zero)
             throw new InvalidOperationException(
                 $"Failed to install keyboard hook. Error: {Marshal.GetLastWin32Error()}");
+
+        LastEventTime = DateTime.UtcNow;
+        Logging.DiagnosticOutput.LogInfo(Logging.DiagnosticOutput.CategoryKeyHook, $"Keyboard hook installed, handle={_hookId}");
+    }
+
+    /// <summary>
+    /// Reinstall the keyboard hook. Call this when Windows has silently removed it.
+    /// </summary>
+    public void Reinstall()
+    {
+        if (_hookId != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_hookId);
+            _hookId = IntPtr.Zero;
+        }
+        Install();
     }
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        LastEventTime = DateTime.UtcNow;
         try
         {
             if (nCode >= 0)
             {
                 var hookStruct = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
 
+                // RAW hook-level log — before any filtering
+                string rawKeyName;
+                try { rawKeyName = ((ConsoleKey)hookStruct.vkCode).ToString(); }
+                catch { rawKeyName = $"0x{hookStruct.vkCode:X2}"; }
+                bool isInjected = (hookStruct.flags & LLKHF_INJECTED) != 0;
+                string injectedTag = isInjected ? " [INJECTED]" : "";
+                Logging.DiagnosticOutput.LogInfo(Logging.DiagnosticOutput.CategoryKeyHook, $"Key={rawKeyName} vk=0x{hookStruct.vkCode:X2} flags=0x{hookStruct.flags:X4}{injectedTag}");
+
                 // Skip injected events
-                if ((hookStruct.flags & LLKHF_INJECTED) != 0)
+                if (isInjected)
                     return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
                 var args = new KeyboardHookEventArgs
@@ -60,7 +96,7 @@ public sealed class KeyboardHook : IDisposable
         }
         catch (Exception ex)
         {
-            Logging.Logger.Instance.Error("Exception in keyboard hook callback", ex);
+            Logging.DiagnosticOutput.LogError(Logging.DiagnosticOutput.CategoryKeyHook, "Exception in keyboard hook callback", ex);
         }
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);

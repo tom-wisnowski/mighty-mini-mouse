@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 using MightyMiniMouse.Actions;
@@ -77,7 +76,7 @@ public class TrayApplication : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to load configuration, using defaults", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryConfig, "Failed to load configuration, using defaults", ex);
             MessageBox.Show($"Failed to load configuration: {ex.Message}\n\nUsing defaults.",
                 "Config Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _config = new AppConfig();
@@ -92,28 +91,31 @@ public class TrayApplication : IDisposable
             ? level : LogLevel.Info;
         Logger.Initialize(_config.Logging.Enabled, _config.Logging.LogFile, logLevel);
 
+        // Configure diagnostic output category filtering
+        DiagnosticOutput.Configure(_config.Logging.SuppressedCategories);
+
         // Resolve active mode
         _activeMode = _config.Modes.FirstOrDefault(m => m.Id == _config.ActiveModeId)
                       ?? _config.Modes[0];
 
-        Logger.Instance.Info("===================================================");
-        Logger.Instance.Info("=== Mighty Mini Mouse starting ===");
-        Logger.Instance.Info($"  PID: {Environment.ProcessId}");
-        Logger.Instance.Info($"  .NET: {Environment.Version}");
-        Logger.Instance.Info($"  OS: {Environment.OSVersion}");
-        Logger.Instance.Info($"  Active mode: {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
-        Logger.Instance.Info($"  Modes: {_config.Modes.Count} defined");
-        Logger.Instance.Info($"  Config dir: {ConfigManager.AppDataDir}");
-        Logger.Instance.Info($"  Logging: level={logLevel}, file={_config.Logging.LogFile}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "===================================================");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "=== Mighty Mini Mouse starting ===");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  PID: {Environment.ProcessId}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  .NET: {Environment.Version}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  OS: {Environment.OSVersion}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  Active mode: {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  Modes: {_config.Modes.Count} defined");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  Config dir: {ConfigManager.AppDataDir}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  Logging: level={logLevel}, file={_config.Logging.LogFile}");
         if (_config.TargetDevice.Enabled)
-            Logger.Instance.Debug($"  Target device: {_config.TargetDevice.DevicePath ?? "(not set)"}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, $"  Target device: {_config.TargetDevice.DevicePath ?? "(not set)"}");
         else
-            Logger.Instance.Debug("  Target device: filtering disabled (accepting all)");
-        Logger.Instance.Info("===================================================");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "  Target device: filtering disabled (accepting all)");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "===================================================");
 
         // Set up system tray icon
         SetupTrayIcon();
-        Logger.Instance.Debug("Tray icon initialized.");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "Tray icon initialized.");
 
         // Initialize input pipeline
         InitializeHooks();
@@ -122,8 +124,7 @@ public class TrayApplication : IDisposable
         if (_config.StartWithWindows)
             RegisterStartup();
 
-        Logger.Instance.Debug("Initialization complete. Interceptor is active.");
-        Debug.WriteLine("[MMM] Initialization complete. Interceptor is active.");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "Initialization complete. Interceptor is active.");
     }
 
     /// <summary>
@@ -143,17 +144,28 @@ public class TrayApplication : IDisposable
             bool enabled = true;
             string logFile = "interceptor.log";
             string logLevelStr = "Info";
+            List<string>? suppressedCategories = null;
 
             if (root.TryGetProperty("logging", out var logging))
             {
                 if (logging.TryGetProperty("enabled", out var e)) enabled = e.GetBoolean();
                 if (logging.TryGetProperty("logFile", out var f)) logFile = f.GetString() ?? logFile;
                 if (logging.TryGetProperty("logLevel", out var l)) logLevelStr = l.GetString() ?? logLevelStr;
+                if (logging.TryGetProperty("suppressedCategories", out var sc) && sc.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    suppressedCategories = [];
+                    foreach (var item in sc.EnumerateArray())
+                    {
+                        var val = item.GetString();
+                        if (val != null) suppressedCategories.Add(val);
+                    }
+                }
             }
 
             var logLevel = Enum.TryParse<LogLevel>(logLevelStr, true, out var level)
                 ? level : LogLevel.Info;
             Logger.Initialize(enabled, logFile, logLevel);
+            DiagnosticOutput.Configure(suppressedCategories);
         }
         catch
         {
@@ -236,11 +248,20 @@ public class TrayApplication : IDisposable
     private void SwitchMode(string modeId)
     {
         var mode = _config.Modes.FirstOrDefault(m => m.Id == modeId);
-        if (mode == null) return;
+        if (mode == null)
+        {
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryLifecycle, $"SwitchMode: mode ID '{modeId}' not found in config ({_config.Modes.Count} modes available)");
+            return;
+        }
+
+        string previousModeName = _activeMode.Name;
+        int previousGestureCount = _activeMode.Gestures.Count;
 
         _activeMode = mode;
         _config.ActiveModeId = mode.Id;
         ConfigManager.Save(_config);
+
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"Mode switch: '{previousModeName}' ({previousGestureCount} gestures) → '{_activeMode.Name}' ({_activeMode.Gestures.Count} gestures)");
 
         // Update the gesture engine with the new mode's gestures
         _gestureEngine?.UpdateGestures(_activeMode.Gestures, _activeMode.Name);
@@ -256,8 +277,35 @@ public class TrayApplication : IDisposable
         if (_trayIcon != null)
             _trayIcon.Text = $"Mighty Mini Mouse — {_activeMode.Name}";
 
-        Logger.Instance.Info($"Switched to mode: {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
-        Debug.WriteLine($"[MMM] Switched to mode: {_activeMode.Name}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"════════════════════════════════════════");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"  MODE SWITCHED → {_activeMode.Name} ({_activeMode.Gestures.Count} gesture(s))");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"════════════════════════════════════════");
+
+        // CRITICAL: The mode switch runs inside the context menu's modal message loop.
+        // When this modal loop exits, Windows can silently stop delivering keyboard
+        // hook events until the main message pump processes a new input message.
+        // Fix: schedule a deferred keyboard hook reinstall via SyncContext.Post.
+        // This only executes AFTER the context menu's modal loop has fully returned
+        // control to Application.Run()'s message pump, which is exactly when it's
+        // safe to reinstall the hook.
+        if (_keyboardHook != null && _syncContext != null)
+        {
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "Scheduling deferred keyboard hook reinstall (post-context-menu)");
+            _syncContext.Post(_ =>
+            {
+                if (_keyboardHook == null) return;
+                DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "Deferred hook reinstall: executing now (message pump is active)");
+                try
+                {
+                    _keyboardHook.Reinstall();
+                    DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"Keyboard hook reinstalled successfully, new handle={(_keyboardHook.IsInstalled ? "valid" : "INVALID")}");
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticOutput.LogError(DiagnosticOutput.CategoryLifecycle, "Failed to reinstall keyboard hook (deferred)", ex);
+                }
+            }, null);
+        }
     }
 
     private void InitializeHooks()
@@ -265,21 +313,21 @@ public class TrayApplication : IDisposable
         _rawInputManager = new RawInputManager();
         _deviceManager = new MightyMiniMouse.Services.DeviceManager(_config, _rawInputManager);
         _rawInputWindow = new RawInputWindow(_rawInputManager);
-        Debug.WriteLine($"[MMM][INIT] Raw input window created, handle={_rawInputWindow.Handle}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, $"Raw input window created, handle={_rawInputWindow.Handle}");
 
         // If device filtering is enabled, try to find the target device
         if (_config.TargetDevice.Enabled && !string.IsNullOrWhiteSpace(_config.TargetDevice.DevicePath))
         {
             if (!_rawInputManager.SetTargetDeviceByPath(_config.TargetDevice.DevicePath))
             {
-                Logger.Instance.Debug($"Target device not found: {_config.TargetDevice.DevicePath}. Accepting all devices.");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Target device not found: {_config.TargetDevice.DevicePath}. Accepting all devices.");
             }
         }
 
         // Initialize gesture engine with active mode's gestures
         _gestureEngine = new GestureEngine(_activeMode.Gestures, _activeMode.Name);
         _gestureEngine.OnGestureRecognized += OnGestureRecognized;
-        Logger.Instance.Debug($"Gesture engine initialized with {_activeMode.Gestures.Count} definition(s) from mode '{_activeMode.Name}'.");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Gesture engine initialized with {_activeMode.Gestures.Count} definition(s) from mode '{_activeMode.Name}'.");
 
         // Install mouse hook
         try
@@ -287,11 +335,11 @@ public class TrayApplication : IDisposable
             _mouseHook = new MouseHook();
             _mouseHook.OnMouseEvent += OnMouseEvent;
             _mouseHook.Install();
-            Logger.Instance.Debug("Mouse hook installed successfully.");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "Mouse hook installed successfully.");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("FAILED to install mouse hook", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryLifecycle, "FAILED to install mouse hook", ex);
         }
 
         // Install keyboard hook
@@ -300,11 +348,11 @@ public class TrayApplication : IDisposable
             _keyboardHook = new KeyboardHook();
             _keyboardHook.OnKeyEvent += OnKeyEvent;
             _keyboardHook.Install();
-            Logger.Instance.Debug("Keyboard hook installed successfully.");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "Keyboard hook installed successfully.");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("FAILED to install keyboard hook", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryLifecycle, "FAILED to install keyboard hook", ex);
         }
     }
 
@@ -327,7 +375,7 @@ public class TrayApplication : IDisposable
             {
                 string path = RawInputManager.GetDeviceName(hDevice);
                 deviceId = RawInputManager.ExtractVidPid(path) ?? path;
-                Debug.WriteLine($"[MMM][MOUSE-HOOK] Resolved deviceId='{deviceId}' from hDevice={hDevice}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryMouseMove, $"Resolved deviceId='{deviceId}' from hDevice={hDevice}");
             }
         }
 
@@ -352,7 +400,7 @@ public class TrayApplication : IDisposable
                         captureDeviceId = RawInputManager.ExtractVidPid(path) ?? path;
                     }
                 }
-                Debug.WriteLine($"[MMM][RECORD] ✓ Captured mouse: {inputKey} on device {captureDeviceId}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Captured mouse: {inputKey} on device {captureDeviceId}");
                 cb.Invoke(inputKey, captureDeviceId);
             }, null);
 
@@ -367,7 +415,7 @@ public class TrayApplication : IDisposable
         {
             string action = args.IsDown ? "DOWN" : args.IsUp ? "UP" : "EVENT";
             string targetTag = fromTarget ? "" : " [other device]";
-            Debug.WriteLine($"[MMM][MOUSE] {buttonName,-12} {action,-6}  pos=({args.PointX},{args.PointY})  data=0x{args.MouseData:X4}{targetTag}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryMouseButton, $"{buttonName,-12} {action,-6}  pos=({args.PointX},{args.PointY})  data=0x{args.MouseData:X4}{targetTag}");
         }
 
         if (!fromTarget) return false;
@@ -387,11 +435,11 @@ public class TrayApplication : IDisposable
             DeviceId = deviceId
         };
 
-        Debug.WriteLine($"[MMM][GESTURE-IN] Feeding: {inputEvent.InputKey} {state} (Device: {deviceId})");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"Feeding: {inputEvent.InputKey} {state} (Device: {deviceId})");
         bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
         if (suppress)
         {
-            Debug.WriteLine($"[MMM][SUPPRESS] Mouse input suppressed: {inputEvent.InputKey} {state}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryMouseButton, $"Mouse input suppressed: {inputEvent.InputKey} {state}");
         }
         return suppress;
     }
@@ -402,7 +450,7 @@ public class TrayApplication : IDisposable
         string keyName;
         try { keyName = ((ConsoleKey)args.VirtualKeyCode).ToString(); }
         catch { keyName = $"0x{args.VirtualKeyCode:X2}"; }
-        Debug.WriteLine($"[MMM][KEY-HOOK] {keyName} {(args.IsKeyDown ? "DOWN" : "UP")}  vk=0x{args.VirtualKeyCode:X2}  enabled={_enabled} dialogOpen={_dialogOpen} recording={_recordCallback != null}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryKeyHook, $"{keyName} {(args.IsKeyDown ? "DOWN" : "UP")}  vk=0x{args.VirtualKeyCode:X2}  enabled={_enabled} dialogOpen={_dialogOpen} recording={_recordCallback != null}");
 
         if (!_enabled || _dialogOpen) return false;
 
@@ -415,7 +463,7 @@ public class TrayApplication : IDisposable
             {
                 string path = RawInputManager.GetDeviceName(hDevice);
                 deviceId = RawInputManager.ExtractVidPid(path) ?? path;
-                Debug.WriteLine($"[MMM][KEY-HOOK] Resolved deviceId='{deviceId}' from hDevice={hDevice}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryKeyHook, $"Resolved deviceId='{deviceId}' from hDevice={hDevice}");
             }
         }
 
@@ -440,7 +488,7 @@ public class TrayApplication : IDisposable
                         captureDeviceId = RawInputManager.ExtractVidPid(path) ?? path;
                     }
                 }
-                Debug.WriteLine($"[MMM][RECORD] ✓ Captured key: {inputKey} on device {captureDeviceId}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Captured key: {inputKey} on device {captureDeviceId}");
                 cb.Invoke(inputKey, captureDeviceId);
             }, null);
 
@@ -452,7 +500,7 @@ public class TrayApplication : IDisposable
 
         string action = args.IsKeyDown ? "DOWN" : "UP";
         string targetTag = fromTarget ? "" : " [other device]";
-        Debug.WriteLine($"[MMM][KEY]   {keyName,-12} {action,-6}  vk=0x{args.VirtualKeyCode:X2}  scan=0x{args.ScanCode:X4}{targetTag}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryKeyHook, $"{keyName,-12} {action,-6}  vk=0x{args.VirtualKeyCode:X2}  scan=0x{args.ScanCode:X4}{targetTag}");
 
         if (!fromTarget) return false;
 
@@ -468,22 +516,21 @@ public class TrayApplication : IDisposable
         bool suppress = _gestureEngine?.ProcessInput(inputEvent) ?? false;
         if (suppress)
         {
-            Debug.WriteLine($"[MMM][SUPPRESS] Keyboard input suppressed: {inputEvent.InputKey} {inputEvent.State}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryKeyHook, $"Keyboard input suppressed: {inputEvent.InputKey} {inputEvent.State}");
         }
         return suppress;
     }
 
     private void OnGestureRecognized(GestureDefinition gesture)
     {
-        Logger.Instance.Debug($"Gesture recognized: {gesture.Name} [{gesture.Type}]");
-        Debug.WriteLine($"[MMM][GESTURE] ★ RECOGNIZED: {gesture.Name} [{gesture.Type}] [Mode: {_activeMode.Name}]");
-        Debug.WriteLine($"[MMM][GESTURE]   Action type: {gesture.Action.Type}");
-        Debug.WriteLine($"[MMM][GESTURE]   Keystroke: {gesture.Action.Keystroke}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryGestureEngine, $"★ RECOGNIZED: {gesture.Name} [{gesture.Type}] [Mode: {_activeMode.Name}]");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Action type: {gesture.Action.Type}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Keystroke: {gesture.Action.Keystroke}");
 
         try
         {
             var action = ActionFactory.Create(gesture.Action);
-            Debug.WriteLine($"[MMM][ACTION] Created: {action.GetType().Name}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Created: {action.GetType().Name}");
 
             // SendInput MUST run on a thread attached to a desktop.
             // Use SynchronizationContext captured during init to dispatch on UI thread.
@@ -493,20 +540,19 @@ public class TrayApplication : IDisposable
                 {
                     try
                     {
-                        Debug.WriteLine($"[MMM][ACTION] Executing {action.GetType().Name} on UI thread...");
+                        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Executing {action.GetType().Name} on UI thread...");
                         await action.ExecuteAsync();
-                        Debug.WriteLine($"[MMM][ACTION] Execution complete.");
+                        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, "Execution complete.");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Instance.Error($"Action execution failed for gesture '{gesture.Name}'", ex);
-                        Debug.WriteLine($"[MMM][ACTION] EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                        DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Action execution failed for gesture '{gesture.Name}'", ex);
                     }
                 }, null);
             }
             else
             {
-                Debug.WriteLine($"[MMM][ACTION] WARNING: No SyncContext, running on Task.Run");
+                DiagnosticOutput.LogWarning(DiagnosticOutput.CategoryAction, "No SyncContext, running on Task.Run");
                 Task.Run(async () =>
                 {
                     try
@@ -515,15 +561,14 @@ public class TrayApplication : IDisposable
                     }
                     catch (Exception ex)
                     {
-                        Logger.Instance.Error($"Action execution failed for gesture '{gesture.Name}'", ex);
+                        DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Action execution failed for gesture '{gesture.Name}'", ex);
                     }
                 });
             }
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error($"Failed to create action for gesture '{gesture.Name}'", ex);
-            Debug.WriteLine($"[MMM][ACTION] FAILED to create: {ex.Message}");
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Failed to create action for gesture '{gesture.Name}'", ex);
         }
     }
 
@@ -531,8 +576,7 @@ public class TrayApplication : IDisposable
     {
         _enabled = !_enabled;
         menuItem.Text = _enabled ? "✓ Enabled" : "  Disabled";
-        Logger.Instance.Debug($"Interceptor {(_enabled ? "enabled" : "disabled")}.");
-        Debug.WriteLine($"[MMM] Interceptor {(_enabled ? "enabled" : "disabled")}.");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, $"Interceptor {(_enabled ? "enabled" : "disabled")}.");
 
         _trayIcon!.Icon = _enabled ? CreateDefaultIcon() : CreateDisabledIcon();
     }
@@ -567,7 +611,7 @@ public class TrayApplication : IDisposable
             if (_trayIcon != null)
                 _trayIcon.Text = $"Mighty Mini Mouse — {_activeMode.Name}";
 
-            Debug.WriteLine($"[MMM] Configuration reloaded. Active mode: {_activeMode.Name}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryConfig, $"Configuration reloaded. Active mode: {_activeMode.Name}");
         }
     }
 
@@ -593,7 +637,7 @@ public class TrayApplication : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to open config", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryConfig, "Failed to open config", ex);
         }
     }
 
@@ -610,7 +654,7 @@ public class TrayApplication : IDisposable
 
         // Pause gesture/keystroke processing while dialog is open
         _dialogOpen = true;
-        Debug.WriteLine("[MMM][PICKER] Dialog opening — gesture processing PAUSED");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Dialog opening — gesture processing PAUSED");
 
         try
         {
@@ -633,7 +677,7 @@ public class TrayApplication : IDisposable
         {
             _activeDialog = null;
             _dialogOpen = false;
-            Debug.WriteLine("[MMM][PICKER] Dialog closed — gesture processing RESUMED");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Dialog closed — gesture processing RESUMED");
         }
     }
 
@@ -644,7 +688,7 @@ public class TrayApplication : IDisposable
         if (handle == null || devicePath == null)
         {
             _rawInputManager?.SetTargetDevice(IntPtr.Zero);
-            Debug.WriteLine("[MMM][DEVICE] Filter cleared — accepting all mice");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, "Filter cleared — accepting all mice");
         }
         else
         {
@@ -654,9 +698,9 @@ public class TrayApplication : IDisposable
             {
                 // Fallback to direct handle if path match fails
                 _rawInputManager?.SetTargetDevice(handle.Value);
-                Debug.WriteLine($"[MMM][DEVICE] Path match failed, using handle: {handle.Value}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Path match failed, using handle: {handle.Value}");
             }
-            Debug.WriteLine($"[MMM][DEVICE] Now targeting: {devicePath}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Now targeting: {devicePath}");
         }
     }
 
@@ -682,7 +726,7 @@ public class TrayApplication : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to open log", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryConfig, "Failed to open log", ex);
         }
     }
 
@@ -696,12 +740,12 @@ public class TrayApplication : IDisposable
             if (key != null && exePath != null)
             {
                 key.SetValue("MightyMiniMouse", $"\"{exePath}\"");
-                Logger.Instance.Debug("Registered for Windows startup.");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryConfig, "Registered for Windows startup.");
             }
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to register startup", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryConfig, "Failed to register startup", ex);
         }
     }
 
@@ -712,11 +756,11 @@ public class TrayApplication : IDisposable
             using var key = Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Run", true);
             key?.DeleteValue("MightyMiniMouse", throwOnMissingValue: false);
-            Logger.Instance.Debug("Unregistered from Windows startup.");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryConfig, "Unregistered from Windows startup.");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to unregister startup", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryConfig, "Failed to unregister startup", ex);
         }
     }
 
@@ -729,13 +773,12 @@ public class TrayApplication : IDisposable
             UnregisterStartup();
 
         ConfigManager.Save(_config);
-        Debug.WriteLine($"[MMM] Start with Windows: {item.Checked}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryConfig, $"Start with Windows: {item.Checked}");
     }
 
     private void ExitApplication()
     {
-        Logger.Instance.Info("=== Mighty Mini Mouse shutting down ===");
-        Debug.WriteLine("[MMM] Shutting down.");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "=== Mighty Mini Mouse shutting down ===");
         Application.Exit();
     }
 

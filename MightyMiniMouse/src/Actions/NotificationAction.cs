@@ -31,11 +31,11 @@ public class NotificationAction : IAction
                 MessageBox.Show(_message, "Mighty Mini Mouse", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
 
-            Logger.Instance.Debug($"Notification shown: {_message}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Notification shown: {_message}");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Failed to show notification", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, "Failed to show notification", ex);
         }
         return Task.CompletedTask;
     }

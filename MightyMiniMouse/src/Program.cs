@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Windows.Forms;
 using MightyMiniMouse.Logging;
@@ -12,17 +11,18 @@ static class Program
     static void Main()
     {
         // ── Global exception handlers — log EVERYTHING before crashing ──
+        // These use Logger directly because DiagnosticOutput may not be initialized,
+        // and fatal errors must NEVER be filtered.
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             var ex = e.ExceptionObject as Exception;
-            Logger.Instance.Fatal("UNHANDLED EXCEPTION (AppDomain)", ex ?? new Exception(e.ExceptionObject?.ToString() ?? "unknown"));
-            Debug.WriteLine($"[MMM][FATAL] Unhandled: {ex?.Message}");
+            DiagnosticOutput.LogFatal(DiagnosticOutput.CategoryLifecycle, "UNHANDLED EXCEPTION (AppDomain)",
+                ex ?? new Exception(e.ExceptionObject?.ToString() ?? "unknown"));
         };
 
         Application.ThreadException += (_, e) =>
         {
-            Logger.Instance.Fatal("UNHANDLED EXCEPTION (UI thread)", e.Exception);
-            Debug.WriteLine($"[MMM][FATAL] UI thread: {e.Exception.Message}");
+            DiagnosticOutput.LogFatal(DiagnosticOutput.CategoryLifecycle, "UNHANDLED EXCEPTION (UI thread)", e.Exception);
         };
 
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -39,14 +39,14 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        Debug.WriteLine("[MMM] ========================================");
-        Debug.WriteLine("[MMM] Mighty Mini Mouse starting...");
-        Debug.WriteLine($"[MMM] PID: {Environment.ProcessId}");
-        Debug.WriteLine($"[MMM] .NET: {Environment.Version}");
-        Debug.WriteLine($"[MMM] OS: {Environment.OSVersion}");
-        Debug.WriteLine($"[MMM] 64-bit: {Environment.Is64BitProcess}");
-        Debug.WriteLine($"[MMM] Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-        Debug.WriteLine("[MMM] ========================================");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "========================================");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "Mighty Mini Mouse starting...");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"PID: {Environment.ProcessId}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $".NET: {Environment.Version}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"OS: {Environment.OSVersion}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"64-bit: {Environment.Is64BitProcess}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, $"Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "========================================");
 
         TrayApplication? trayApp = null;
         try
@@ -54,7 +54,7 @@ static class Program
             trayApp = new TrayApplication();
             trayApp.Initialize();
 
-            Debug.WriteLine("[MMM] Initialization complete. Entering message loop.");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryLifecycle, "Initialization complete. Entering message loop.");
 
             // Application.Run starts the Windows message loop.
             // This is REQUIRED for:
@@ -65,23 +65,20 @@ static class Program
         }
         catch (Exception ex)
         {
-            Logger.Instance.Fatal("FATAL: Exception during application run", ex);
-            Debug.WriteLine($"[MMM][FATAL] {ex.GetType().Name}: {ex.Message}");
+            DiagnosticOutput.LogFatal(DiagnosticOutput.CategoryLifecycle, "FATAL: Exception during application run", ex);
             MessageBox.Show($"Fatal error: {ex.Message}\n\nSee log for details.",
                 "Mighty Mini Mouse", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
-            Debug.WriteLine("[MMM] ========================================");
-            Debug.WriteLine("[MMM] Shutting down...");
-            Logger.Instance.Info("=== Application shutting down ===");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "========================================");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "Shutting down...");
 
             trayApp?.Shutdown();
             trayApp?.Dispose();
 
-            Logger.Instance.Info("=== Application shutdown complete ===");
-            Debug.WriteLine("[MMM] Shutdown complete.");
-            Debug.WriteLine("[MMM] ========================================");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "Application shutdown complete.");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryLifecycle, "========================================");
         }
     }
 }

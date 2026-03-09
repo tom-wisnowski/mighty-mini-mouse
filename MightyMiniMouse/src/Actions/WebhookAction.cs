@@ -34,11 +34,11 @@ public class WebhookAction : IAction
             }
 
             var response = await HttpClient.SendAsync(request, ct);
-            Logger.Instance.Debug($"Webhook {_httpMethod} {_url} → {(int)response.StatusCode} {response.ReasonPhrase}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryAction, $"Webhook {_httpMethod} {_url} → {(int)response.StatusCode} {response.ReasonPhrase}");
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error($"Webhook {_httpMethod} {_url} failed", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryAction, $"Webhook {_httpMethod} {_url} failed", ex);
         }
     }
 }

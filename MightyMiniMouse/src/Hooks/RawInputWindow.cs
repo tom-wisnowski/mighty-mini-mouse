@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using MightyMiniMouse.Logging;
@@ -12,7 +11,7 @@ namespace MightyMiniMouse.Hooks;
 /// <see cref="RawInputManager.ProcessRawInput"/>. This window must exist
 /// for raw input device-handle tracking to work.
 /// </summary>
-internal class RawInputWindow : NativeWindow, IDisposable
+internal sealed class RawInputWindow : NativeWindow, IDisposable
 {
     private readonly RawInputManager _rawInputManager;
     private bool _disposed;
@@ -29,7 +28,7 @@ internal class RawInputWindow : NativeWindow, IDisposable
         };
         CreateHandle(cp);
 
-        Debug.WriteLine($"[MMM][RAW-WINDOW] Hidden raw input window created: handle={Handle}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, $"Hidden raw input window created: handle={Handle}");
 
         // Register for raw input on this window
         _rawInputManager.RegisterForRawInput(Handle);
@@ -52,7 +51,7 @@ internal class RawInputWindow : NativeWindow, IDisposable
 
         if (Handle != IntPtr.Zero)
         {
-            Debug.WriteLine("[MMM][RAW-WINDOW] Destroying raw input window");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, "Destroying raw input window");
             DestroyHandle();
         }
     }

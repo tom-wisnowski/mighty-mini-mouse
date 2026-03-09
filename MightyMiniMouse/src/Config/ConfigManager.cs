@@ -10,7 +10,7 @@ public class ConfigManager
     /// <summary>
     /// Current schema version. Bump this when making breaking config changes.
     /// </summary>
-    public const int CurrentConfigVersion = 2;
+    public const int CurrentConfigVersion = 3;
 
     /// <summary>
     /// User-writable config directory: %AppData%\MightyMiniMouse
@@ -67,7 +67,8 @@ public class ConfigManager
     /// <summary>
     /// Version-driven migration. Each upgrade step runs in order:
     ///   v0/v1 → v2: wrap legacy flat Gestures into a "Default" mode.
-    ///   (future: v2 → v3, etc.)
+    ///   v2 → v3: add SuppressedCategories to logging config.
+    ///   (future: v3 → v4, etc.)
     /// </summary>
     private static void MigrateIfNeeded(AppConfig config)
     {
@@ -87,7 +88,7 @@ public class ConfigManager
         // ── v1 → v2: Introduce modes ──
         if (config.ConfigVersion < 2)
         {
-            Logger.Instance.Info($"Migrating config v{config.ConfigVersion} → v2: converting flat gestures to modes...");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryConfig, $"Migrating config v{config.ConfigVersion} → v2: converting flat gestures to modes...");
 
             var defaultMode = new ModeDefinition
             {
@@ -102,12 +103,28 @@ public class ConfigManager
             // Clear the legacy list so it doesn't linger in the JSON
             config.Gestures = [];
 
-            Logger.Instance.Info($"  Created 'Default' mode with {defaultMode.Gestures.Count} gesture(s).");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryConfig, $"  Created 'Default' mode with {defaultMode.Gestures.Count} gesture(s).");
             config.ConfigVersion = 2;
             migrated = true;
         }
 
-        // ── (future: v2 → v3, etc.) ──
+        // ── v2 → v3: Add SuppressedCategories to logging ──
+        if (config.ConfigVersion < 3)
+        {
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryConfig, $"Migrating config v{config.ConfigVersion} → v3: adding suppressedCategories to logging...");
+
+            // Populate with defaults if the list is empty (it will be empty for existing v2 configs
+            // since the JSON had no suppressedCategories field and the C# default-initializer
+            // only applies to freshly constructed objects, not deserialized ones).
+            if (config.Logging.SuppressedCategories == null || config.Logging.SuppressedCategories.Count == 0)
+            {
+                config.Logging.SuppressedCategories = ["MouseMove", "RawInput"];
+            }
+
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryConfig, $"  SuppressedCategories: [{string.Join(", ", config.Logging.SuppressedCategories)}]");
+            config.ConfigVersion = 3;
+            migrated = true;
+        }
 
         // Ensure ActiveModeId points to a valid mode
         if (config.ActiveModeId == null ||
@@ -118,7 +135,7 @@ public class ConfigManager
 
         if (migrated)
         {
-            Logger.Instance.Info($"Config migration complete. Now at v{config.ConfigVersion}.");
+            DiagnosticOutput.LogInfo(DiagnosticOutput.CategoryConfig, $"Config migration complete. Now at v{config.ConfigVersion}.");
             Save(config);
         }
     }

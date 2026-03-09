@@ -108,7 +108,7 @@ public class RawInputManager
         if (handle == IntPtr.Zero)
         {
             _targetVidPid = null;
-            Logger.Instance.Debug("Target device cleared — accepting all devices");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, "Target device cleared — accepting all devices");
         }
         else
         {
@@ -116,7 +116,7 @@ public class RawInputManager
             string path = GetDeviceName(handle);
             var match = VidPidRegex.Match(path);
             _targetVidPid = match.Success ? match.Value.ToUpperInvariant() : null;
-            Logger.Instance.Debug($"Target device set: handle={handle}, vidpid={_targetVidPid ?? "(none)"}, path={path}");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Target device set: handle={handle}, vidpid={_targetVidPid ?? "(none)"}, path={path}");
         }
     }
 
@@ -131,7 +131,7 @@ public class RawInputManager
         if (vpMatch.Success)
         {
             _targetVidPid = vpMatch.Value.ToUpperInvariant();
-            Logger.Instance.Debug($"Target device set by VID/PID: {_targetVidPid} (from path: {devicePathSubstring})");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Target device set by VID/PID: {_targetVidPid} (from path: {devicePathSubstring})");
         }
 
         // Also try to set the specific handle for backward compat
@@ -141,7 +141,7 @@ public class RawInputManager
             if (device.DevicePath.Contains(devicePathSubstring, StringComparison.OrdinalIgnoreCase))
             {
                 _targetDeviceHandle = device.Handle;
-                Logger.Instance.Debug($"Target device handle matched: {device.Handle}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"Target device handle matched: {device.Handle}");
                 return true;
             }
         }
@@ -153,7 +153,7 @@ public class RawInputManager
             return true;
         }
 
-        Logger.Instance.Debug($"No device found matching path substring: {devicePathSubstring}");
+        DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryDevice, $"No device found matching path substring: {devicePathSubstring}");
         return false;
     }
 
@@ -172,7 +172,7 @@ public class RawInputManager
 
             if (dataSize == 0) 
             {
-                Logger.Instance.Error($"[RAW-ERROR] dataSize is 0. res1={res1}, Error={Marshal.GetLastWin32Error()}");
+                DiagnosticOutput.LogError(DiagnosticOutput.CategoryRawInput, $"dataSize is 0. res1={res1}, Error={Marshal.GetLastWin32Error()}");
                 return;
             }
 
@@ -182,7 +182,7 @@ public class RawInputManager
                 uint res2 = GetRawInputData(hRawInput, (uint)RID_INPUT, buffer, ref dataSize, headerSize);
                 if (res2 == unchecked((uint)-1))
                 {
-                    Logger.Instance.Error($"[RAW-ERROR] GetRawInputData failed. Error={Marshal.GetLastWin32Error()}");
+                    DiagnosticOutput.LogError(DiagnosticOutput.CategoryRawInput, $"GetRawInputData failed. Error={Marshal.GetLastWin32Error()}");
                     return;
                 }
 
@@ -191,7 +191,7 @@ public class RawInputManager
                 byte[] bytes = new byte[readSize];
                 Marshal.Copy(buffer, bytes, 0, readSize);
                 string hex = BitConverter.ToString(bytes);
-                Logger.Instance.Debug($"[RAW-DUMP] hRawInput={hRawInput}, size={dataSize}, hex={hex}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, $"hRawInput={hRawInput}, size={dataSize}, hex={hex}");
 
                 var raw = Marshal.PtrToStructure<RAWINPUT>(buffer);
                 _lastSeenDevice = raw.header.hDevice;
@@ -200,7 +200,7 @@ public class RawInputManager
                 OnDeviceActivity?.Invoke(_lastSeenDevice);
 
                 // Log every event while debugging
-                Logger.Instance.Debug($"[RAW] WM_INPUT #{_rawInputCount}: hRawInput={hRawInput}, res2={res2}, dataSize={dataSize}, hDevice={raw.header.hDevice}, dwType={raw.header.dwType}");
+                DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, $"WM_INPUT #{_rawInputCount}: hRawInput={hRawInput}, res2={res2}, dataSize={dataSize}, hDevice={raw.header.hDevice}, dwType={raw.header.dwType}");
             }
             finally
             {
@@ -209,7 +209,7 @@ public class RawInputManager
         }
         catch (Exception ex)
         {
-            Logger.Instance.Error("Exception processing raw input data", ex);
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryRawInput, "Exception processing raw input data", ex);
         }
     }
 
@@ -297,9 +297,9 @@ public class RawInputManager
             (uint)Marshal.SizeOf<RAWINPUTDEVICE>());
 
         if (!success)
-            Logger.Instance.Error($"Failed to register raw input devices. Error: {Marshal.GetLastWin32Error()}");
+            DiagnosticOutput.LogError(DiagnosticOutput.CategoryRawInput, $"Failed to register raw input devices. Error: {Marshal.GetLastWin32Error()}");
         else
-            Logger.Instance.Debug("Raw input devices registered successfully.");
+            DiagnosticOutput.LogDebug(DiagnosticOutput.CategoryRawInput, "Raw input devices registered successfully.");
 
         return success;
     }
@@ -378,7 +378,6 @@ public class RawInputManager
         if (match.Success)
         {
             string vid = match.Groups[1].Value.ToUpperInvariant();
-            string pid = match.Groups[2].Value.ToUpperInvariant();
 
             string manufacturer = VendorNames.TryGetValue(vid, out var name)
                 ? name
